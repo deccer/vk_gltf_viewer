@@ -116,6 +116,8 @@ void Application::updateRenderResolution() {
 
 void Application::addAssetToScene(AssetLoadTask& assetLoadTask) {
 	ZoneScoped;
+	textures.insert(textures.end(), assetLoadTask.textures.begin(), assetLoadTask.textures.end());
+
 	fastgltf::iterateSceneNodes(*assetLoadTask.asset, 0, fastgltf::math::fmat4x4(),
 								[&](fastgltf::Node& node, const fastgltf::math::fmat4x4& mat) {
 		if (!node.meshIndex.has_value())

@@ -39,6 +39,6 @@ namespace graphics::metal::imgui {
 		~Renderer() noexcept;
 
 		void draw(MTL::CommandBuffer* commandBuffer, CA::MetalDrawable* drawable,
-				  glm::u32vec2 framebufferSize, std::size_t frameIndex);
+				  glm::u32vec2 framebufferSize, std::size_t frameIndex, bool clearDrawable);
 	};
 }

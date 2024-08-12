@@ -203,7 +203,7 @@ foreach(SHADER_FILE ${MSL_SHADER_FILES})
     set(FILE_INCLUDES "")
     parse_includes(FILE_INCLUDES FILE_CONTENTS)
     list(REMOVE_DUPLICATES FILE_INCLUDES)
-    message(STATUS "Found Metal includes: ${FILE_INCLUDES}")
+    # message(STATUS "Found Metal includes: ${FILE_INCLUDES}")
 
     # Compile Metal source to AIR file
     add_custom_command(

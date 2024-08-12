@@ -175,6 +175,7 @@ class AssetLoadTask : public ExceptionTaskSet {
 	std::vector<Mesh> meshes;
 	std::vector<std::shared_ptr<graphics::Mesh>> primitives;
 	std::vector<Animation> animations;
+	std::vector<std::shared_ptr<graphics::Texture>> textures;
 	std::vector<shaders::Material> materials;
 
 	std::shared_ptr<fastgltf::Asset> loadGltf();

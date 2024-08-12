@@ -6,6 +6,7 @@
 
 #include <Foundation/NSSharedPtr.hpp>
 #include <Metal/MTLDevice.hpp>
+#include <Metal/MTLSampler.hpp>
 #include <QuartzCore/CAMetalLayer.hpp>
 
 #include <graphics/resource_table.hpp>
@@ -21,6 +22,31 @@ class MtlBuffer : public graphics::Buffer {
 public:
 	explicit MtlBuffer() = default;
 	~MtlBuffer() noexcept = default;
+};
+
+class MtlSampler final : public Sampler, public NS::SharedPtr<MTL::SamplerState> {
+public:
+	explicit MtlSampler(MTL::SamplerState* sampler)
+			: NS::SharedPtr<MTL::SamplerState>(NS::TransferPtr(sampler)) {}
+};
+
+class MtlImage final : public Image, public NS::SharedPtr<MTL::Texture> {
+public:
+	explicit MtlImage(MTL::Texture* texture)
+			: NS::SharedPtr<MTL::Texture>(NS::TransferPtr(texture)) {}
+};
+
+class MtlTexture final : public Texture {
+	std::shared_ptr<MtlResourceTable> resourceTable;
+	std::shared_ptr<MtlImage> image;
+	std::shared_ptr<MtlSampler> sampler;
+
+public:
+	explicit MtlTexture(std::shared_ptr<MtlResourceTable> resourceTable, std::shared_ptr<MtlImage> image, std::shared_ptr<MtlSampler> sampler)
+			: Texture(resourceTable->allocateSampledImage(image->get(), sampler->get())), resourceTable(std::move(resourceTable)), image(std::move(image)), sampler(std::move(sampler)) {}
+	~MtlTexture() override {
+		resourceTable->removeSampledImageHandle(getHandle());
+	}
 };
 
 class MeshletMesh : public graphics::Mesh {
@@ -40,19 +66,20 @@ public:
 	~MeshletMesh() noexcept = default;
 };
 
-struct MeshletDrawBuffers {
-	NS::SharedPtr<MTL::Buffer> primitiveBuffer;
-	NS::SharedPtr<MTL::Buffer> meshletDrawBuffer;
-	NS::SharedPtr<MTL::Buffer> transformBuffer;
-};
-
 struct MeshletSceneMesh {
 	std::shared_ptr<MeshletMesh> mesh;
 	shaders::Primitive primitive;
 
-	explicit MeshletSceneMesh(std::shared_ptr<MeshletMesh>& mesh, shaders::Primitive primitive)
-			: mesh(mesh), primitive(primitive) {}
-	MeshletSceneMesh(MeshletSceneMesh&& other) noexcept : mesh(std::move(other.mesh)), primitive(other.primitive) {}
+	explicit MeshletSceneMesh(std::shared_ptr<MeshletMesh> mesh, shaders::Primitive primitive)
+			: mesh(std::move(mesh)), primitive(primitive) {}
+	MeshletSceneMesh(MeshletSceneMesh&& other) noexcept
+			: mesh(std::move(other.mesh)), primitive(other.primitive) {}
+};
+
+struct MeshletDrawBuffers {
+	NS::SharedPtr<MTL::Buffer> primitiveBuffer;
+	NS::SharedPtr<MTL::Buffer> meshletDrawBuffer;
+	NS::SharedPtr<MTL::Buffer> transformBuffer;
 };
 
 class MeshletScene : public graphics::Scene {
@@ -117,6 +144,8 @@ class MtlRenderer : public graphics::Renderer {
 	std::vector<shaders::Material> materials;
 	std::vector<NS::SharedPtr<MTL::Buffer>> materialBuffers;
 
+	std::shared_ptr<MtlSampler> defaultSampler;
+
 	VisbufferPass visbufferPass;
 	VisbufferResolvePass visbufferResolvePass;
 
@@ -139,8 +168,13 @@ public:
 
 	std::shared_ptr<Scene> createSharedScene() override;
 
-	shaders::ResourceTableHandle createSampledTextureHandle() override;
-	shaders::ResourceTableHandle createStorageTextureHandle() override;
+	std::shared_ptr<Image> createSharedImage(
+		std::span<std::byte> imageData, glm::u32vec2 extents) override;
+
+	std::shared_ptr<Sampler> getDefaultSampler() override;
+	std::shared_ptr<Sampler> createSharedSampler() override;
+	std::shared_ptr<Texture> createSharedTexture(
+		std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) override;
 
 	bool canRender() override {
 		return true; // TODO: Detect window being minimized or sth

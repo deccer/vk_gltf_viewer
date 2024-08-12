@@ -175,8 +175,10 @@ gmtl::MtlResourceTable::MtlResourceTable(NS::SharedPtr<MTL::Device> pDevice) : d
 	 * For simplicity, we'll also just use 1M which should be enough in all cases. */
 	static constexpr std::size_t count = fastgltf::alignUp(1'000'000, 64);
 	sampledImageBuffer = device->newBuffer(count * sizeof(SampledTextureEntry), MTL::ResourceStorageModeShared);
+	sampledImageBuffer->setLabel(NS::String::string("Sampled image table", NS::UTF8StringEncoding));
 
 	storageImageBuffer = device->newBuffer(count * sizeof(MTL::ResourceID), MTL::ResourceStorageModeShared);
+	storageImageBuffer->setLabel(NS::String::string("Storage image table", NS::UTF8StringEncoding));
 
 	sampledImageBitmap.resize(count);
 	storageImageBitmap.resize(count);
@@ -198,7 +200,7 @@ shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateStorageImage(MTL::T
 
 shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateSampledImage(MTL::Texture* texture, MTL::SamplerState* sampler) noexcept {
 	ZoneScoped;
-	auto handle = findFirstFreeHandle(storageImageBitmap);
+	auto handle = findFirstFreeHandle(sampledImageBitmap);
 
 	auto& data = static_cast<SampledTextureEntry*>(sampledImageBuffer->contents())[handle];
 	data.tex = texture->gpuResourceID();

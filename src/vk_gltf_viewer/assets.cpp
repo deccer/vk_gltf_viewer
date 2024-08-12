@@ -14,6 +14,12 @@
 
 #include <meshoptimizer.h>
 
+#define WUFFS_CONFIG__MODULE__AUX__IMAGE // For C++ image API
+#include "wuffs-v0.4.c"
+
+#define DDS_USE_STD_FILESYSTEM
+#include <dds.hpp>
+
 namespace fs = std::filesystem;
 namespace fg = fastgltf;
 
@@ -96,10 +102,10 @@ struct CompressedBufferDataAdapter : enki::ITaskSet {
 				return {};
 			},
 			[&](const sources::Array& array) -> span<const std::byte> {
-				return span(reinterpret_cast<const std::byte*>(array.bytes.data()), array.bytes.size_bytes());
+				return span(array.bytes.data(), array.bytes.size_bytes());
 			},
 			[&](const sources::Vector& vec) -> span<const std::byte> {
-				return span(reinterpret_cast<const std::byte*>(vec.bytes.data()), vec.bytes.size());
+				return span(vec.bytes.data(), vec.bytes.size());
 			},
 			[&](const sources::ByteView& bv) -> span<const std::byte> {
 				return bv.bytes;
@@ -186,16 +192,154 @@ struct CompressedBufferDataAdapter : enki::ITaskSet {
 	}
 };
 
-/**
- * Loads all glTF images into Vulkan images
- */
 struct ImageLoadTask : ExceptionTaskSet {
+	const fg::Asset& asset;
+	std::shared_ptr<graphics::Renderer> renderer;
+
+	std::vector<std::shared_ptr<graphics::Image>> images;
+
+	explicit ImageLoadTask(const fg::Asset& asset, std::shared_ptr<graphics::Renderer> renderer) : asset(asset), renderer(std::move(renderer)) {
+		images.resize(asset.images.size());
+		m_SetSize = fg::max(1UZ, asset.images.size());
+	}
+
+	std::shared_ptr<graphics::Image> loadDefault(std::span<const std::byte> imageBytes);
+
+	static fg::MimeType detectMimeType(std::span<const std::byte> data);
+	std::shared_ptr<graphics::Image> load(std::span<const std::byte> imageBytes, fg::MimeType mimeType);
 	void ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) override;
 };
 
+std::shared_ptr<graphics::Image> ImageLoadTask::loadDefault(std::span<const std::byte> imageBytes) {
+	ZoneScoped;
+
+	wuffs_aux::DecodeImageCallbacks callbacks;
+	wuffs_aux::sync_io::MemoryInput input(reinterpret_cast<const char*>(imageBytes.data()), imageBytes.size_bytes());
+	auto decodeResult = wuffs_aux::DecodeImage(callbacks, input);
+	if (!decodeResult.error_message.empty()) {
+		throw std::runtime_error(decodeResult.error_message);
+	}
+	if (!decodeResult.pixbuf.pixcfg.pixel_format().is_interleaved()) {
+		throw std::runtime_error("Cannot load non-interleaved PNG/JPEG images.");
+	}
+
+	std::uint32_t width = decodeResult.pixbuf.pixcfg.width(), height = decodeResult.pixbuf.pixcfg.height();
+
+	auto imageData = std::span(
+		reinterpret_cast<std::byte*>(decodeResult.pixbuf.plane(0).ptr),
+		decodeResult.pixbuf.pixcfg.pixbuf_len());
+	return renderer->createSharedImage(imageData, glm::u32vec2(width, height));
+}
+
+/** Sometimes, the mimeType field is unspecified. Here, we try and detect the mimeType if it's initially None */
+fg::MimeType ImageLoadTask::detectMimeType(std::span<const std::byte> data) {
+	ZoneScoped;
+
+	// The glTF did not provide a mime type. Try to detect the image format using the header magic.
+	// See https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#images for the table of patterns
+	if (data[0] == std::byte{0xFF} && data[1] == std::byte{0xD8} && data[2] == std::byte{0xFF}) {
+		return fg::MimeType::JPEG;
+	}
+
+	static constexpr auto pngMagic = std::to_array<std::uint8_t>({
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+	});
+	if (std::memcmp(data.data(), pngMagic.data(), pngMagic.size()) == 0) {
+		return fg::MimeType::PNG;
+	}
+
+	if (*reinterpret_cast<const std::uint32_t*>(data.data()) == dds::DdsMagicNumber::DDS) {
+		return fg::MimeType::DDS;
+	}
+
+	if (data[0] == std::byte{0xAB} && data[1] == std::byte{'K'} && data[2] == std::byte{'T'} && data[3] == std::byte{'X'}) {
+		return fg::MimeType::KTX2;
+	}
+
+	throw std::runtime_error(
+		fmt::format("Failed to detect image mime type while loading. Header magic: {0:x}", *reinterpret_cast<const std::uint32_t*>(data.data())));
+}
+
+std::shared_ptr<graphics::Image> ImageLoadTask::load(std::span<const std::byte> imageBytes, fg::MimeType mimeType) {
+	ZoneScoped;
+	if (mimeType == fg::MimeType::None) {
+		mimeType = detectMimeType(imageBytes);
+	}
+
+	switch (mimeType) {
+		using fg::MimeType;
+		case MimeType::PNG:
+		case MimeType::JPEG: {
+			return loadDefault(imageBytes);
+		}
+		default: {
+			throw std::runtime_error(fmt::format("Unsupported mime type for loading images: {}", fastgltf::to_underlying(mimeType)));
+		}
+	}
+}
+
 void ImageLoadTask::ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) {
 	ZoneScoped;
+	if (asset.images.empty())
+		return;
+
 	for (auto i = range.start; i < range.end; ++i) {
+		const auto& image = asset.images[i];
+
+		std::visit(fg::visitor {
+			[]([[maybe_unused]] auto& arg) {
+				throw std::runtime_error("Got an unexpected image data source. Can't load image.");
+			},
+			[&](const fg::sources::Array& array) {
+				images[i] = load(std::span(array.bytes.data(), array.bytes.size()), array.mimeType);
+			},
+			[&](fg::sources::BufferView& bufferView) {
+				auto& view = asset.bufferViews[bufferView.bufferViewIndex];
+				auto& buffer = asset.buffers[view.bufferIndex];
+				return std::visit(fg::visitor{
+					[]([[maybe_unused]] auto& arg) {
+						throw std::runtime_error("Got an unexpected image data source. Can't load image.");
+					},
+					[&](fg::sources::Array& array) {
+						images[i] = load(std::span(array.bytes.data() + view.byteOffset, array.bytes.size()), bufferView.mimeType);
+					}
+				}, buffer.data);
+			}
+		}, image.data);
+	}
+}
+
+/**
+ * The TextureCreateTask is responsible for creating samplers and bundling them together into textures.
+ * We use a set size of 1 here, since this is a process that is pretty much free and the thread scheduling
+ * overhead would be too big in most cases.
+ */
+struct TextureCreateTask : ExceptionTaskSet {
+	const fg::Asset& asset;
+	std::shared_ptr<graphics::Renderer> renderer;
+
+	std::vector<std::shared_ptr<graphics::Texture>> textures;
+
+	enki::Dependency imageLoadDependency;
+
+	explicit TextureCreateTask(const fg::Asset& asset, std::shared_ptr<graphics::Renderer> renderer) : asset(asset), renderer(std::move(renderer)) {
+		textures.resize(asset.textures.size());
+		m_SetSize = 1;
+	}
+
+	void ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) override;
+};
+
+void TextureCreateTask::ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) {
+	std::vector<std::shared_ptr<graphics::Sampler>> samplers(asset.samplers.size());
+
+	for (std::size_t i = 0; auto& sampler : asset.samplers)
+		samplers[i++] = renderer->createSharedSampler();
+
+	auto* imageTask = dynamic_cast<const ImageLoadTask*>(imageLoadDependency.GetDependencyTask());
+	for (std::size_t i = 0; auto& texture : asset.textures) {
+		auto sampler = texture.samplerIndex.has_value() ? samplers[texture.samplerIndex.value()] : renderer->getDefaultSampler();
+		textures[i++] = renderer->createSharedTexture(imageTask->images[*texture.imageIndex], sampler);
 	}
 }
 
@@ -206,10 +350,10 @@ struct MaterialLoadTask : enki::ITaskSet {
 
 	std::mutex materialMutex; // TODO: Should the renderer have this mutex instead?
 
-	enki::Dependency imageLoadDependency;
+	enki::Dependency textureDependency;
 
-	explicit MaterialLoadTask(const fg::Asset& asset, ImageLoadTask& imageLoadTask, std::shared_ptr<graphics::Renderer> renderer) noexcept : asset(asset), renderer(std::move(renderer)) {
-		materials.resize(asset.materials.size() + 1);
+	explicit MaterialLoadTask(const fg::Asset& asset, std::shared_ptr<graphics::Renderer> renderer) noexcept : asset(asset), renderer(std::move(renderer)) {
+		materials.resize(asset.materials.size());
 		m_SetSize = fg::max(1UZ, asset.materials.size());
 		m_MinRange = fg::min(16U, m_SetSize);
 	}
@@ -222,6 +366,7 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 	if (asset.materials.empty())
 		return;
 
+	auto* textureTask = dynamic_cast<const TextureCreateTask*>(textureDependency.GetDependencyTask());
 	for (auto i = range.start; i < range.end; ++i) {
 		auto& gltfMaterial = asset.materials[i];
 		auto& pbr = gltfMaterial.pbrData;
@@ -229,6 +374,7 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 		std::lock_guard lock(materialMutex);
 		materials[i] = renderer->createMaterial(shaders::Material {
 			.albedoFactor = glm::make_vec4(pbr.baseColorFactor.data()),
+			.albedoIndex = pbr.baseColorTexture ? textureTask->textures[pbr.baseColorTexture->textureIndex]->getHandle() : 0,
 			.alphaCutoff = gltfMaterial.alphaCutoff,
 			.doubleSided = gltfMaterial.doubleSided,
 		});
@@ -405,7 +551,8 @@ std::shared_ptr<fastgltf::Asset> AssetLoadTask::loadGltf() {
 	}
 
 	static constexpr auto gltfOptions = fg::Options::GenerateMeshIndices
-		| fg::Options::DecomposeNodeMatrices;
+		| fg::Options::DecomposeNodeMatrices
+		| fg::Options::LoadExternalImages;
 
 	static constexpr auto gltfExtensions = fg::Extensions::EXT_meshopt_compression
 		| fg::Extensions::KHR_mesh_quantization
@@ -434,10 +581,13 @@ void AssetLoadTask::ExecuteRangeWithExceptions(enki::TaskSetPartition range, std
 	CompressedBufferDataAdapter bufferDecompressTask(*asset);
 	bufferDecompressTask.SetDependency(bufferDecompressTask.bufferLoadDependency, &bufferLoadTask);
 
-	ImageLoadTask imageLoadTask;
+	ImageLoadTask imageLoadTask(*asset, renderer);
 
-	MaterialLoadTask materialLoadTask(*asset, imageLoadTask, renderer);
-	materialLoadTask.SetDependency(materialLoadTask.imageLoadDependency, &imageLoadTask);
+	TextureCreateTask textureCreateTask(*asset, renderer);
+	textureCreateTask.SetDependency(textureCreateTask.imageLoadDependency, &imageLoadTask);
+
+	MaterialLoadTask materialLoadTask(*asset, renderer);
+	materialLoadTask.SetDependency(materialLoadTask.textureDependency, &textureCreateTask);
 
 	PrimitiveProcessingTask primitiveTask(*asset, bufferDecompressTask, renderer);
 	primitiveTask.SetDependency(primitiveTask.bufferDecompressDependency, &bufferDecompressTask);
@@ -477,4 +627,5 @@ void AssetLoadTask::ExecuteRangeWithExceptions(enki::TaskSetPartition range, std
 
 	meshes = std::move(primitiveTask.meshes);
 	primitives = std::move(primitiveTask.primitives);
+	textures = std::move(textureCreateTask.textures);
 }

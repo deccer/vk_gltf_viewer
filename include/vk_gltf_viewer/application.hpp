@@ -44,6 +44,8 @@ class Application {
 	std::shared_ptr<graphics::Scene> scene;
 	std::unique_ptr<Camera> camera;
 
+	std::vector<std::shared_ptr<graphics::Texture>> textures;
+
 	glm::u32vec2 renderResolution;
 	ResolutionScalingModes scalingMode = ResolutionScalingModes::None;
 	std::vector<std::pair<ResolutionScalingModes, std::string_view>> availableScalingModes;

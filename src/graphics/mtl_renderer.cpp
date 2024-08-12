@@ -13,6 +13,8 @@
 #include <fastgltf/util.hpp>
 #include <Metal/MTLComputeCommandEncoder.hpp>
 #include <Metal/MTLComputePipeline.hpp>
+#include <Metal/MTLPipeline.hpp>
+#include <Metal/MTLSampler.hpp>
 
 #include "visbuffer/visbuffer.h"
 
@@ -157,6 +159,13 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	});
 	materialBuffers.resize(frameOverlap);
 
+	// Create the default sampler.
+	// When texture.sampler is undefined, a sampler with repeat wrapping (in both directions) and auto filtering MUST be used.
+	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	samplerDesc->setRAddressMode(MTL::SamplerAddressModeRepeat);
+	samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
+	defaultSampler = std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
+
 	initVisbufferPass();
 	initVisbufferResolvePass();
 }
@@ -180,6 +189,18 @@ void gmtl::MtlRenderer::initVisbufferPass() {
 
 	pipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
 
+	// Explicitly set all of the buffer bindings to immutable
+	pipelineDescriptor->objectBuffers()->object(0)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->objectBuffers()->object(1)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->objectBuffers()->object(2)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->objectBuffers()->object(3)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->objectBuffers()->object(4)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->meshBuffers()->object(0)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->meshBuffers()->object(1)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->meshBuffers()->object(2)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->meshBuffers()->object(3)->setMutability(MTL::MutabilityImmutable);
+	pipelineDescriptor->meshBuffers()->object(4)->setMutability(MTL::MutabilityImmutable);
+
 	NS::Error* error = nullptr;
 	visbufferPass.pipelineState = NS::TransferPtr(
 			device->newRenderPipelineState(pipelineDescriptor, MTL::PipelineOptionNone, nullptr, &error));
@@ -202,6 +223,7 @@ void gmtl::MtlRenderer::initVisbufferPass() {
 	visbufferDesc->setStorageMode(MTL::StorageModePrivate);
 
 	visbufferPass.visbuffer = NS::TransferPtr(device->newTexture(visbufferDesc));
+	visbufferPass.visbuffer->setLabel(NS::String::string("Visbuffer", NS::UTF8StringEncoding));
 
 	auto* depthDesc = MTL::TextureDescriptor::texture2DDescriptor(
 			MTL::PixelFormatDepth32Float, size.width, size.height, false);
@@ -209,6 +231,7 @@ void gmtl::MtlRenderer::initVisbufferPass() {
 	depthDesc->setStorageMode(MTL::StorageModePrivate);
 
 	visbufferPass.depthTexture = NS::TransferPtr(device->newTexture(depthDesc));
+	visbufferPass.depthTexture->setLabel(NS::String::string("Depth texture", NS::UTF8StringEncoding));
 }
 
 void gmtl::MtlRenderer::initVisbufferResolvePass() {
@@ -329,14 +352,44 @@ std::shared_ptr<graphics::Scene> gmtl::MtlRenderer::createSharedScene() {
 	return std::make_shared<MeshletScene>(device, graphics::frameOverlap);
 }
 
-shaders::ResourceTableHandle gmtl::MtlRenderer::createSampledTextureHandle() {
-	ZoneScoped;
-	return resourceTable->allocateSampledImage(nullptr, nullptr);
+std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::getDefaultSampler() {
+	return defaultSampler;
 }
 
-shaders::ResourceTableHandle gmtl::MtlRenderer::createStorageTextureHandle() {
-	ZoneScoped;
-	return resourceTable->allocateStorageImage(nullptr);
+std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::createSharedSampler() {
+	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+
+	return std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
+}
+
+std::shared_ptr<graphics::Image> gmtl::MtlRenderer::createSharedImage(
+	std::span<std::byte> imageData, glm::u32vec2 extents) {
+ZoneScoped;
+	auto* descriptor = MTL::TextureDescriptor::alloc()->init()->autorelease();
+	descriptor->setStorageMode(MTL::StorageModeShared);
+	descriptor->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+	descriptor->setUsage(MTL::TextureUsageShaderRead);
+	descriptor->setAllowGPUOptimizedContents(true);
+	descriptor->setWidth(extents.x);
+	descriptor->setHeight(extents.y);
+	descriptor->setDepth(1);
+
+	auto* texture = device->newTexture(descriptor);
+
+	texture->replaceRegion(
+		MTL::Region::Make2D(0, 0, extents.x, extents.y),
+		0, imageData.data(), sizeof(std::uint32_t) * extents.x);
+
+	return std::make_shared<MtlImage>(texture);
+}
+
+std::shared_ptr<graphics::Texture> gmtl::MtlRenderer::createSharedTexture(std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) {
+	auto mtlImage = std::static_pointer_cast<MtlImage>(image);
+	auto mtlSampler = std::static_pointer_cast<MtlSampler>(sampler);
+	return std::make_shared<MtlTexture>(
+		resourceTable,
+		mtlImage,
+		mtlSampler);
 }
 
 void gmtl::MtlRenderer::updateResolution(glm::u32vec2 resolution) {
@@ -470,7 +523,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		// TODO: Clear image to black or something?
 	}
 
-	imguiRenderer->draw(buffer, drawable, getRenderResolution(), frameIndex);
+	imguiRenderer->draw(buffer, drawable, getRenderResolution(), frameIndex, drawCount == 0);
 
 	buffer->presentDrawable(drawable);
 

@@ -73,6 +73,8 @@ gmtl::imgui::Renderer::Renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPt
 	fontAtlas->replaceRegion(MTL::Region::Make2D(0, 0, width, height), 0, pixels, width);
 
 	auto* samplerDescriptor = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	samplerDescriptor->setMinFilter(MTL::SamplerMinMagFilterLinear);
+	samplerDescriptor->setMagFilter(MTL::SamplerMinMagFilterLinear);
 	fontAtlasSampler = device->newSamplerState(samplerDescriptor);
 
 	fontAtlasHandle = resourceTable->allocateSampledImage(fontAtlas, fontAtlasSampler);
@@ -90,7 +92,7 @@ gmtl::imgui::Renderer::~Renderer() noexcept {
 }
 
 void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDrawable* drawable,
-								 glm::u32vec2 framebufferSize, std::size_t frameIndex) {
+								 glm::u32vec2 framebufferSize, std::size_t frameIndex, bool clearDrawable) {
 	ZoneScoped;
 	auto* drawData = ImGui::GetDrawData();
 
@@ -143,7 +145,7 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 	auto* renderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
 	auto* colorAttachment = renderPassDescriptor->colorAttachments()->object(0);
 	colorAttachment->init();
-	colorAttachment->setLoadAction(MTL::LoadActionLoad);
+	colorAttachment->setLoadAction(clearDrawable ? MTL::LoadActionClear : MTL::LoadActionLoad);
 	colorAttachment->setStoreAction(MTL::StoreActionStore);
 	colorAttachment->setClearColor(MTL::ClearColor::Make(0.f, 0.f, 0.f, 1.f));
 	colorAttachment->setTexture(drawable->texture());

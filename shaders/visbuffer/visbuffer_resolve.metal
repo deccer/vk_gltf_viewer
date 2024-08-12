@@ -41,9 +41,11 @@ struct Barycentrics {
 
 /// See http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
 /// for more details on how this works and the links to the relevant papers.
+/// TODO: Explore replacing these calculations with half precision floats, since the precision
+///       issue shouldn't be noticeable here and recent Apple GPUs can run those ops at 2x
 Barycentrics calculateBarycentrics(float4 v0, float4 v1, float4 v2, float2 pixel, float2 size) {
 	pixel.y = -pixel.y; // flip because +Y is up.
-	
+
 	auto invW = 1.f / float3(v0.w, v1.w, v2.w);
 
 	auto ndc0 = v0.xy * invW.x;
@@ -145,8 +147,8 @@ float3 interpolateWithDeriv(thread const Barycentrics& barycentrics, float3 v) {
 		metal::unpack_unorm4x8_to_float(vtx1.color),
 		metal::unpack_unorm4x8_to_float(vtx2.color));
 
-	const auto albedo = interpolatedColor * float4(material.albedoFactor);
-
-	//auto resolved = float4(hue2rgb(draw.meshletIndex * 1.71f), 1.f);
+	//const auto albedo = interpolatedColor * float4(material.albedoFactor);
+	const auto albedo = float4(barycentrics.lambda, 1.f);
+	//const auto albedo = float4(hue2rgb(draw.meshletIndex * 1.71f), 1.f);
 	color.write(albedo, gid);
 }

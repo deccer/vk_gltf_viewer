@@ -9,18 +9,30 @@
 #include <resource_table.h>
 
 namespace graphics {
+	class Renderer;
+
 	using index_t = std::uint32_t; // TODO: Support dynamic index bit width?
 
 	/** The amount of frames we render ahead, regardless of what the windowing system or GPU supports */
 	static constexpr std::uint32_t frameOverlap = 3;
 
-	class Buffer {
+	class Buffer {};
 
+	class Sampler {};
+	class Image {};
+	class Texture {
+		shaders::ResourceTableHandle handle = shaders::invalidHandle;
+
+	public:
+		explicit Texture(const shaders::ResourceTableHandle handle) noexcept : handle(handle) {}
+		virtual ~Texture() noexcept = default;
+
+		[[nodiscard]] shaders::ResourceTableHandle getHandle() const noexcept {
+			return handle;
+		}
 	};
 
-	class Mesh {
-
-	};
+	class Mesh {};
 
 	using MaterialIndex = std::uint32_t;
 	using InstanceIndex = std::uint32_t;
@@ -59,8 +71,14 @@ namespace graphics {
 
 		[[nodiscard]] virtual std::shared_ptr<Scene> createSharedScene() = 0;
 
-		[[nodiscard]] virtual shaders::ResourceTableHandle createSampledTextureHandle() = 0;
-		[[nodiscard]] virtual shaders::ResourceTableHandle createStorageTextureHandle() = 0;
+		[[nodiscard]] virtual std::shared_ptr<Image> createSharedImage(
+			std::span<std::byte> imageData, glm::u32vec2 extents) = 0;
+
+		[[nodiscard]] virtual std::shared_ptr<Sampler> getDefaultSampler() = 0;
+		[[nodiscard]] virtual std::shared_ptr<Sampler> createSharedSampler() = 0; // TODO
+
+		[[nodiscard]] virtual std::shared_ptr<Texture> createSharedTexture(
+			std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) = 0;
 
 		/**
 		 * If this returns false, the window might be minimised or being resized, forcing us to pause rendering shortly.

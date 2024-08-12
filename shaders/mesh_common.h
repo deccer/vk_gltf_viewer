@@ -41,7 +41,7 @@ SHADER_CONSTANT uint32_t maxMeshlets = 102;
 #else
 SHADER_CONSTANT uint32_t maxVertices = 64;
 SHADER_CONSTANT uint32_t maxPrimitives = 128;
-SHADER_CONSTANT uint32_t maxMeshlets = 64; // This should best be a multiple of the threadgroup size.
+SHADER_CONSTANT uint32_t maxMeshlets = 32; // This should best be a multiple of the threadgroup size.
 #endif
 
 // This is essentially a replacement for gl_WorkGroupID.x, but one which can store any index
