@@ -17,10 +17,7 @@ struct SampledTextureEntry {
     metal::sampler sampler;
 };
 
-struct ResourceTableBuffer {
-    device SampledTextureEntry* sampled_textures_heap;
-    device uint64_t* storage_image_heap;
-};
+using ResourceTable = device SampledTextureEntry*;
 
 using ResourceTableHandle = metal::uint32_t;
 #elif defined(SHADER_CPP)

@@ -100,12 +100,27 @@ float3 interpolateWithDeriv(thread const Barycentrics& barycentrics, float3 v) {
 		dot(v, barycentrics.ddy));
 }
 
+struct InterpolatedUV {
+	float2 uv;
+	gradient2d gradient;
+};
+
+InterpolatedUV interpolateUv(thread const Barycentrics& barycentrics, float2 v0, float2 v1, float2 v2) {
+	const auto i0 = interpolateWithDeriv(barycentrics, float3(v0.x, v1.x, v2.x));
+	const auto i1 = interpolateWithDeriv(barycentrics, float3(v0.y, v1.y, v2.y));
+	return {
+		.uv = float2(i0.x, i1.x),
+		.gradient = gradient2d(float2(i0.y, i1.y), float2(i0.z, i1.z)),
+	};
+}
+
 [[kernel]] void visbuffer_resolve(
 		device const shaders::MeshletDraw* draws [[buffer(0)]],
 		device const float4x4* transforms [[buffer(1)]],
 		device const shaders::Primitive* primitives [[buffer(2)]],
 		device const shaders::Camera& camera [[buffer(3)]],
 		device const shaders::Material* materials [[buffer(4)]],
+		const shaders::ResourceTable resourceTable [[buffer(5)]],
 		texture2d<uint, access::read> visbuffer [[texture(0)]],
 		texture2d<float, access::write> color [[texture(1)]],
 		ushort2 gid [[thread_position_in_grid]]) {
@@ -147,8 +162,15 @@ float3 interpolateWithDeriv(thread const Barycentrics& barycentrics, float3 v) {
 		metal::unpack_unorm4x8_to_float(vtx1.color),
 		metal::unpack_unorm4x8_to_float(vtx2.color));
 
-	//const auto albedo = interpolatedColor * float4(material.albedoFactor);
-	const auto albedo = float4(barycentrics.lambda, 1.f);
-	//const auto albedo = float4(hue2rgb(draw.meshletIndex * 1.71f), 1.f);
+	const auto interpolatedUv = interpolateUv(barycentrics,
+		float2(vtx0.uv),
+		float2(vtx1.uv),
+		float2(vtx2.uv));
+
+	device auto& albedo_tex = resourceTable[material.albedoIndex];
+
+	const auto sampled = albedo_tex.tex.sample(
+	    albedo_tex.sampler, interpolatedUv.uv, interpolatedUv.gradient);
+	const auto albedo = interpolatedColor * float4(material.albedoFactor) * sampled;
 	color.write(albedo, gid);
 }

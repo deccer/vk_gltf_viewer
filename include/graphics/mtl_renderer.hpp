@@ -43,7 +43,7 @@ class MtlTexture final : public Texture {
 
 public:
 	explicit MtlTexture(std::shared_ptr<MtlResourceTable> resourceTable, std::shared_ptr<MtlImage> image, std::shared_ptr<MtlSampler> sampler)
-			: Texture(resourceTable->allocateSampledImage(image->get(), sampler->get())), resourceTable(std::move(resourceTable)), image(std::move(image)), sampler(std::move(sampler)) {}
+			: Texture(resourceTable->allocateSampledImage(*image.get(), *sampler.get())), resourceTable(std::move(resourceTable)), image(std::move(image)), sampler(std::move(sampler)) {}
 	~MtlTexture() override {
 		resourceTable->removeSampledImageHandle(getHandle());
 	}
@@ -172,7 +172,8 @@ public:
 		std::span<std::byte> imageData, glm::u32vec2 extents) override;
 
 	std::shared_ptr<Sampler> getDefaultSampler() override;
-	std::shared_ptr<Sampler> createSharedSampler() override;
+	std::shared_ptr<Sampler> createSharedSampler(
+		const fastgltf::Sampler& sampler) override;
 	std::shared_ptr<Texture> createSharedTexture(
 		std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) override;
 

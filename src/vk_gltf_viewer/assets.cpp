@@ -334,7 +334,7 @@ void TextureCreateTask::ExecuteRangeWithExceptions(enki::TaskSetPartition range,
 	std::vector<std::shared_ptr<graphics::Sampler>> samplers(asset.samplers.size());
 
 	for (std::size_t i = 0; auto& sampler : asset.samplers)
-		samplers[i++] = renderer->createSharedSampler();
+		samplers[i++] = renderer->createSharedSampler(sampler);
 
 	auto* imageTask = dynamic_cast<const ImageLoadTask*>(imageLoadDependency.GetDependencyTask());
 	for (std::size_t i = 0; auto& texture : asset.textures) {
@@ -494,6 +494,16 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 				vertices[idx].color = glm::u8vec4(glm::vec4(val, 1.0f) * 255.f);
 			}, adapter);
 		}
+	}
+
+	if (auto* uvAttribute = gltfPrimitive.findAttribute("TEXCOORD_0"); uvAttribute != gltfPrimitive.attributes.end()) {
+		auto& uvAccessor = asset.accessors[uvAttribute->accessorIndex];
+		fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 val, std::size_t idx) {
+			vertices[idx].uv = {
+				meshopt_quantizeHalf(val.x),
+				meshopt_quantizeHalf(val.y),
+			};
+		}, adapter);
 	}
 
 	auto* materialTask = dynamic_cast<const MaterialLoadTask*>(materialDependency.GetDependencyTask());

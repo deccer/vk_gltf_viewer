@@ -356,9 +356,57 @@ std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::getDefaultSampler() {
 	return defaultSampler;
 }
 
-std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::createSharedSampler() {
-	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+MTL::SamplerAddressMode getAddressMode(fastgltf::Wrap wrap) {
+	switch (wrap) {
+		using enum fastgltf::Wrap;
+		case ClampToEdge:
+			return MTL::SamplerAddressModeClampToEdge;
+		case MirroredRepeat:
+			return MTL::SamplerAddressModeMirrorRepeat;
+		case Repeat:
+		default:
+			return MTL::SamplerAddressModeRepeat;
+	}
+}
 
+MTL::SamplerMinMagFilter getFilter(fastgltf::Filter filter) {
+	switch (filter) {
+		using enum fastgltf::Filter;
+		case Nearest:
+		case NearestMipMapNearest:
+		case NearestMipMapLinear:
+		default:
+			return MTL::SamplerMinMagFilterNearest;
+
+		case Linear:
+		case LinearMipMapNearest:
+		case LinearMipMapLinear:
+			return MTL::SamplerMinMagFilterLinear;
+	}
+}
+
+MTL::SamplerMipFilter getMipFilter(fastgltf::Filter filter) {
+	switch (filter) {
+		using enum fastgltf::Filter;
+		case NearestMipMapNearest:
+		case LinearMipMapNearest:
+			return MTL::SamplerMipFilterNearest;
+
+		case NearestMipMapLinear:
+		case LinearMipMapLinear:
+		default:
+			return MTL::SamplerMipFilterLinear;
+	}
+}
+
+std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::createSharedSampler(
+		const fastgltf::Sampler& sampler) {
+	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	samplerDesc->setSAddressMode(getAddressMode(sampler.wrapS));
+	samplerDesc->setTAddressMode(getAddressMode(sampler.wrapT));
+	samplerDesc->setMinFilter(getFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
+	samplerDesc->setMagFilter(getFilter(sampler.magFilter.value_or(fastgltf::Filter::Nearest)));
+	samplerDesc->setMipFilter(getMipFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
 	return std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
 }
 
@@ -500,6 +548,9 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		resolveEncoder->setBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
 		resolveEncoder->setBuffer(cameraBuffers[frameIndex].get(), 0, 3);
 		resolveEncoder->setBuffer(materialBuffers[frameIndex].get(), 0, 4);
+		resolveEncoder->setBuffer(resourceTable->sampledImageBuffer, 0, 5);
+
+		resourceTable->encodeUsage(resolveEncoder);
 
 		resolveEncoder->setTexture(visbufferPass.visbuffer.get(), 0);
 		resolveEncoder->setTexture(drawable->texture(), 1);

@@ -68,14 +68,14 @@ gmtl::imgui::Renderer::Renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPt
 		.alpha = MTL::TextureSwizzleAlpha,
 	});
 
-	fontAtlas = device->newTexture(desc);
+	fontAtlas = NS::TransferPtr(device->newTexture(desc));
 
 	fontAtlas->replaceRegion(MTL::Region::Make2D(0, 0, width, height), 0, pixels, width);
 
 	auto* samplerDescriptor = MTL::SamplerDescriptor::alloc()->init()->autorelease();
 	samplerDescriptor->setMinFilter(MTL::SamplerMinMagFilterLinear);
 	samplerDescriptor->setMagFilter(MTL::SamplerMinMagFilterLinear);
-	fontAtlasSampler = device->newSamplerState(samplerDescriptor);
+	fontAtlasSampler = NS::TransferPtr(device->newSamplerState(samplerDescriptor));
 
 	fontAtlasHandle = resourceTable->allocateSampledImage(fontAtlas, fontAtlasSampler);
 	io.Fonts->SetTexID(fontAtlasHandle);
@@ -87,8 +87,6 @@ gmtl::imgui::Renderer::~Renderer() noexcept {
 	ZoneScoped;
 	pipelineState->release();
 	resourceTable->removeSampledImageHandle(fontAtlasHandle);
-	fontAtlasSampler->release();
-	fontAtlas->release();
 }
 
 void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDrawable* drawable,
@@ -153,16 +151,8 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 	auto* pass = commandBuffer->renderCommandEncoder(renderPassDescriptor);
 	pass->setRenderPipelineState(pipelineState);
 
-	// TODO: Move this logic into the MtlResourceTable type.
-	struct {
-		std::uint64_t sampledBuffer;
-		std::uint64_t storageBuffer;
-	} resourceTableBuffer {
-		.sampledBuffer = resourceTable->sampledImageBuffer->gpuAddress(),
-		.storageBuffer = resourceTable->storageImageBuffer->gpuAddress(),
-	};
-	pass->setFragmentBytes(&resourceTableBuffer, sizeof(resourceTableBuffer), 1);
-	pass->useResource(resourceTable->sampledImageBuffer, MTL::ResourceUsageRead);
+	pass->setFragmentBuffer(resourceTable->sampledImageBuffer, 0, 1);
+	resourceTable->encodeUsage(pass);
 
 	pass->useResource(frameBuffers.vertexBuffer.get(), MTL::ResourceUsageRead);
 	pass->useResource(frameBuffers.indexBuffer.get(), MTL::ResourceUsageRead);
@@ -206,7 +196,7 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 			};
 			pass->setScissorRect(scissorRect);
 
-			pass->useResource(fontAtlas, MTL::ResourceUsageSample);
+			pass->useResource(fontAtlas.get(), MTL::ResourceUsageSample);
 
 			if (auto texId = cmd.GetTexID(); texId == shaders::invalidHandle) {
 				constants.imageIndex = fontAtlasHandle;

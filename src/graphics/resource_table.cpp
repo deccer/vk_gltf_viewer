@@ -35,13 +35,6 @@ void graphics::ResourceTable::freeHandle(std::vector<std::uint64_t>& bitmap, sha
 	bitmap[i] &= ~(std::uint64_t(1U) << (handle % 64));
 }
 
-void graphics::ResourceTable::removeStorageImageHandle(shaders::ResourceTableHandle handle) noexcept {
-	ZoneScoped;
-	if (handle == shaders::invalidHandle)
-		return;
-	freeHandle(storageImageBitmap, handle);
-}
-
 void graphics::ResourceTable::removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept {
 	ZoneScoped;
 	if (handle == shaders::invalidHandle)
@@ -167,6 +160,13 @@ shaders::ResourceTableHandle gvk::VkResourceTable::allocateSampledImage(VkImageV
 	return handle;
 }
 
+void gvk::VkResourceTable::removeStorageImageHandle(shaders::ResourceTableHandle handle) noexcept {
+	ZoneScoped;
+	if (handle == shaders::invalidHandle)
+		return;
+	freeHandle(storageImageBitmap, handle);
+}
+
 #if defined(VKV_METAL)
 gmtl::MtlResourceTable::MtlResourceTable(NS::SharedPtr<MTL::Device> pDevice) : device(std::move(pDevice)) {
 	ZoneScoped;
@@ -177,34 +177,32 @@ gmtl::MtlResourceTable::MtlResourceTable(NS::SharedPtr<MTL::Device> pDevice) : d
 	sampledImageBuffer = device->newBuffer(count * sizeof(SampledTextureEntry), MTL::ResourceStorageModeShared);
 	sampledImageBuffer->setLabel(NS::String::string("Sampled image table", NS::UTF8StringEncoding));
 
-	storageImageBuffer = device->newBuffer(count * sizeof(MTL::ResourceID), MTL::ResourceStorageModeShared);
-	storageImageBuffer->setLabel(NS::String::string("Storage image table", NS::UTF8StringEncoding));
-
 	sampledImageBitmap.resize(count);
-	storageImageBitmap.resize(count);
 }
 
 gmtl::MtlResourceTable::~MtlResourceTable() noexcept {
 	ZoneScoped;
-	storageImageBuffer->release();
 	sampledImageBuffer->release();
 }
 
-shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateStorageImage(MTL::Texture* texture) noexcept {
+shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateSampledImage(NS::SharedPtr<MTL::Texture> texture, NS::SharedPtr<MTL::SamplerState> sampler) noexcept {
 	ZoneScoped;
-	auto handle = findFirstFreeHandle(storageImageBitmap);
-
-	static_cast<MTL::ResourceID*>(storageImageBuffer->contents())[handle] = texture->gpuResourceID();
-	return handle;
-}
-
-shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateSampledImage(MTL::Texture* texture, MTL::SamplerState* sampler) noexcept {
-	ZoneScoped;
+	assert(texture && sampler);
 	auto handle = findFirstFreeHandle(sampledImageBitmap);
 
 	auto& data = static_cast<SampledTextureEntry*>(sampledImageBuffer->contents())[handle];
 	data.tex = texture->gpuResourceID();
 	data.sampler = sampler->gpuResourceID();
+
+	resources[handle] = std::move(texture);
 	return handle;
 }
+
+void gmtl::MtlResourceTable::removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept {
+	ZoneScoped;
+	assert(resources.contains(handle));
+	resources.erase(handle);
+	ResourceTable::removeSampledImageHandle(handle);
+}
+
 #endif

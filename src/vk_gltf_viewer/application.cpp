@@ -5,6 +5,7 @@
 #include <tracy/Tracy.hpp>
 
 #include <fmt/xchar.h>
+#include <fmt/std.h>
 
 #include <vulkan/vk.hpp>
 #include <vulkan/pipeline_builder.hpp>
@@ -129,6 +130,10 @@ void Application::addAssetToScene(AssetLoadTask& assetLoadTask) {
 			scene->updateTransform(instance, glm::make_mat4x4(mat.data()));
 		}
 	});
+
+	fmt::print("Finished loading asset: {}\n", assetLoadTask.assetPath);
+    using namespace std::chrono_literals;
+	//std::this_thread::sleep_for(2s);
 }
 
 void Application::run() {

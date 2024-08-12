@@ -8,6 +8,8 @@
 #include <mesh_common.h>
 #include <resource_table.h>
 
+#include <fastgltf/types.hpp>
+
 namespace graphics {
 	class Renderer;
 
@@ -75,7 +77,8 @@ namespace graphics {
 			std::span<std::byte> imageData, glm::u32vec2 extents) = 0;
 
 		[[nodiscard]] virtual std::shared_ptr<Sampler> getDefaultSampler() = 0;
-		[[nodiscard]] virtual std::shared_ptr<Sampler> createSharedSampler() = 0; // TODO
+		[[nodiscard]] virtual std::shared_ptr<Sampler> createSharedSampler(
+			const fastgltf::Sampler& sampler) = 0; // TODO
 
 		[[nodiscard]] virtual std::shared_ptr<Texture> createSharedTexture(
 			std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) = 0;
