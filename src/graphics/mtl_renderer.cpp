@@ -11,6 +11,7 @@
 #include <graphics/mtl_renderer.hpp>
 
 #include <fastgltf/util.hpp>
+#include <Metal/MTLBlitCommandEncoder.hpp>
 #include <Metal/MTLComputeCommandEncoder.hpp>
 #include <Metal/MTLComputePipeline.hpp>
 #include <Metal/MTLPipeline.hpp>
@@ -422,11 +423,27 @@ ZoneScoped;
 	descriptor->setHeight(extents.y);
 	descriptor->setDepth(1);
 
+	auto mipmapCount = static_cast<NS::UInteger>(
+		ceil(log2(fastgltf::max(extents.x, extents.y))));
+	descriptor->setMipmapLevelCount(fastgltf::max<NS::UInteger>(mipmapCount, 1U));
+
 	auto* texture = device->newTexture(descriptor);
 
 	texture->replaceRegion(
 		MTL::Region::Make2D(0, 0, extents.x, extents.y),
 		0, imageData.data(), sizeof(std::uint32_t) * extents.x);
+
+	if (mipmapCount > 1) {
+		// TODO: (1) Expose API that takes mipmap data, if it already exists from the image file.
+		//       (2) Avoid waiting on the command buffer here, and instead only wait for it completing
+		//           on our main command buffer, just before we actually use the textures.
+		auto* buffer = commandQueue->commandBuffer();
+		auto* blitEncoder = buffer->blitCommandEncoder();
+		blitEncoder->generateMipmaps(texture);
+		blitEncoder->endEncoding();
+		buffer->commit();
+		buffer->waitUntilCompleted();
+	}
 
 	return std::make_shared<MtlImage>(texture);
 }
@@ -570,36 +587,40 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		resolveEncoder->dispatchThreadgroups(threadgroupCount, threadgroupSize);
 
 		resolveEncoder->endEncoding();
-	} else {
-		// TODO: Clear image to black or something?
 	}
 
 	imguiRenderer->draw(buffer, drawable, getRenderResolution(), frameIndex, drawCount == 0);
 
 	buffer->presentDrawable(drawable);
 
-	buffer->addCompletedHandler([&](MTL::CommandBuffer* buffer) {
+	// The completion handlers execute on another thread than our main thread, and the command buffer
+	// might outlive this MtlRenderer class. Therefore, we need to keep a weak reference to this class
+	// alive in the lambda capture instead of just blindly capturing `this`, which might not be a valid
+	// object anymore when this executes.
+	buffer->addCompletedHandler([weak = weak_from_this()](MTL::CommandBuffer* buffer) {
 		ZoneScoped;
-		dispatch_semaphore_signal(drawSemaphore);
+		if (auto renderer = std::dynamic_pointer_cast<MtlRenderer>(weak.lock())) {
+			dispatch_semaphore_signal(renderer->drawSemaphore);
 
-		if (buffer->status() == MTL::CommandBufferStatusError) {
-			auto* error = buffer->error();
-			if (error) {
-				fmt::print(stderr, "Command buffer error: {}\n", error->localizedDescription()->utf8String());
+			if (buffer->status() == MTL::CommandBufferStatusError) {
+				auto* error = buffer->error();
+				if (error) {
+					fmt::print(stderr, "Command buffer error: {}\n", error->localizedDescription()->utf8String());
 
-				auto* encoderInfos = static_cast<NS::Array*>(
-						error->userInfo()->object(MTL::CommandBufferEncoderInfoErrorKey));
-				for (std::size_t i = 0; i < encoderInfos->count(); ++i) {
-					auto* info = static_cast<MTL::CommandBufferEncoderInfo*>(encoderInfos->object(i));
-					for (std::size_t j = 0; j < info->debugSignposts()->count(); ++j) {
-						auto* signpost = static_cast<NS::String*>(info->debugSignposts()->object(j));
-						fmt::print(stderr, "Signpost {}: {}", j, signpost->utf8String());
+					auto* encoderInfos = static_cast<NS::Array*>(
+							error->userInfo()->object(MTL::CommandBufferEncoderInfoErrorKey));
+					for (std::size_t i = 0; i < encoderInfos->count(); ++i) {
+						auto* info = static_cast<MTL::CommandBufferEncoderInfo*>(encoderInfos->object(i));
+						for (std::size_t j = 0; j < info->debugSignposts()->count(); ++j) {
+							auto* signpost = static_cast<NS::String*>(info->debugSignposts()->object(j));
+							fmt::print(stderr, "Signpost {}: {}", j, signpost->utf8String());
+						}
 					}
 				}
-			}
 
-			commandBufferException = std::make_exception_ptr(
-					std::runtime_error("Failed to execute command buffer"));
+				renderer->commandBufferException = std::make_exception_ptr(
+						std::runtime_error("Failed to execute command buffer"));
+			}
 		}
 	});
 

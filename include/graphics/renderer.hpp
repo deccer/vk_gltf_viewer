@@ -51,7 +51,7 @@ namespace graphics {
 	/**
 	 * The abstracted renderer interface.
 	 */
-	class Renderer {
+	class Renderer : public std::enable_shared_from_this<Renderer> {
 	public:
 		Renderer() noexcept = default;
 		virtual ~Renderer() noexcept = default;
