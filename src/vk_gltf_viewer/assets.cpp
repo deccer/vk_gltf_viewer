@@ -457,7 +457,7 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 
 	if (auto* normalAttribute = gltfPrimitive.findAttribute("NORMAL"); normalAttribute != gltfPrimitive.attributes.end()) {
 		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex], [&](glm::vec3 val, std::size_t idx) {
-			vertices[idx].normal = glm::u8vec3(val * 127.f + 127.5f);
+			vertices[idx].normal = val;
 		}, adapter);
 	} else {
 		// Generate basic smooth vertex normals. As we quantize the normals, we have to store them first to normalize them afterwards.
@@ -476,7 +476,7 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 			normals[i2] += val;
 		}
 		for (std::size_t i = 0; i < normals.size(); ++i) {
-			vertices[i].normal = glm::u8vec3(glm::normalize(normals[i]) * 127.f + 127.5f);
+			vertices[i].normal = normals[i];
 		}
 	}
 

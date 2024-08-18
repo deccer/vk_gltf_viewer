@@ -149,6 +149,7 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 	colorAttachment->setTexture(drawable->texture());
 
 	auto* pass = commandBuffer->renderCommandEncoder(renderPassDescriptor);
+	pass->setLabel(MTLSTR("ImGui"));
 	pass->setRenderPipelineState(pipelineState);
 
 	pass->setFragmentBuffer(resourceTable->sampledImageBuffer, 0, 1);

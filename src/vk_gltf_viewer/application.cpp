@@ -91,7 +91,12 @@ Application::Application(std::span<std::filesystem::path> gltfs) {
 	}
 }
 
-Application::~Application() noexcept = default;
+Application::~Application() noexcept {
+	// TODO: is there perhaps some way to detach the tasks, so that we don't lock up
+	//       the application during shutting down?
+	for (auto& task : assetLoadTasks)
+		taskScheduler.WaitforTask(task.get());
+}
 
 void Application::updateRenderResolution() {
 	ZoneScoped;

@@ -105,23 +105,21 @@ public:
 
 CA::MetalLayer* createMetalLayer(GLFWwindow* window);
 
-struct VisbufferPass {
-	NS::SharedPtr<MTL::RenderPipelineState> pipelineState;
-	NS::SharedPtr<MTL::DepthStencilState> depthState;
+struct visbuffer_pass {
+	NS::SharedPtr<MTL::RenderPipelineState> visbuffer_pipeline;
+	NS::SharedPtr<MTL::RenderPipelineState> gbuffer_tile_pipeline;
+	NS::SharedPtr<MTL::DepthStencilState> depth_state;
 
-	/** The pipeline used to draw AABBs to determine the  */
-	NS::SharedPtr<MTL::RenderPipelineState> aabbPipelineState;
+	NS::SharedPtr<MTL::Texture> normal_texture;
+	NS::SharedPtr<MTL::Texture> depth_texture;
 
-	NS::SharedPtr<MTL::Texture> visbuffer;
-	NS::SharedPtr<MTL::Texture> depthTexture;
-};
-
-struct VisbufferResolvePass {
-	NS::SharedPtr<MTL::ComputePipelineState> pipelineState;
+	void init_pass(MtlRenderer& renderer);
+	void update_resolution(MtlRenderer& renderer);
 };
 
 class MtlRenderer : public graphics::Renderer {
 	friend std::shared_ptr<Renderer> graphics::Renderer::createRenderer(GLFWwindow* window);
+	friend visbuffer_pass;
 
 	/** This comes first so that it wraps around the entire lifetime of the renderer object */
 	// NS::SharedPtr<NS::AutoreleasePool> pool;
@@ -146,11 +144,7 @@ class MtlRenderer : public graphics::Renderer {
 
 	std::shared_ptr<MtlSampler> defaultSampler;
 
-	VisbufferPass visbufferPass;
-	VisbufferResolvePass visbufferResolvePass;
-
-	void initVisbufferPass();
-	void initVisbufferResolvePass();
+	visbuffer_pass visbuffer_pass;
 
 public:
 	explicit MtlRenderer(GLFWwindow* window);

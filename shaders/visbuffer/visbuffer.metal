@@ -4,54 +4,54 @@
 #include "mesh_common.h"
 #include "culling.h"
 
-using namespace metal;
+namespace mtl = metal;
 
-struct MeshletVertex {
+struct meshlet_vertex {
 	float4 position [[position]];
 };
 
-struct MeshletPrimitive {
-	uint drawIndex;
+struct meshlet_primitive {
+	uint draw_id;
 	uint id [[primitive_id]];
 	bool culled [[primitive_culled]];
 };
 
-using Meshlet = mesh<MeshletVertex, MeshletPrimitive, shaders::maxVertices, shaders::maxPrimitives, topology::triangle>;
+using meshlet_t = mtl::mesh<meshlet_vertex, meshlet_primitive, shaders::maxVertices, shaders::maxPrimitives, mtl::topology::triangle>;
 
-struct ObjectPayload {
-	uint baseIndex;
-	metal::array<uint8_t, shaders::maxMeshlets> indices;
+struct object_payload {
+	uint base_index;
+	mtl::array<uint8_t, shaders::maxMeshlets> indices;
 };
 
 /// Object shader that handles up to shaders::maxMeshlets meshlets per threadgroup.
 /// This uses frustum culling and a modified index array to have a fully GPU-driven
 /// pipeline and cull as many meshlets as possible.
 [[object]] void visbuffer_object(
-		object_data ObjectPayload& payload [[payload]],
-		mesh_grid_properties outGrid,
-		constant const ulong& meshletDrawCount [[buffer(0)]],
+		object_data object_payload& payload [[payload]],
+		mtl::mesh_grid_properties outGrid,
+		constant const ulong& meshlet_draw_count [[buffer(0)]],
 		device const shaders::Camera& camera [[buffer(1)]],
 		device const shaders::MeshletDraw* draws [[buffer(2)]],
-		device const float4x4* transforms [[buffer(3)]],
+		device const mtl::float4x4* transforms [[buffer(3)]],
 		device const shaders::Primitive* primitives [[buffer(4)]],
-		uint groupId [[threadgroup_position_in_grid]],
-		uint threadIndex [[thread_position_in_threadgroup]],
-		uint threadGroupWidth [[threads_per_threadgroup]]) {
-	uint meshletCount = uint(min(ulong(shaders::maxMeshlets), meshletDrawCount - (groupId * shaders::maxMeshlets)));
-	uint baseId = payload.baseIndex = groupId * shaders::maxMeshlets;
+		uint gid [[threadgroup_position_in_grid]],
+		uint thread_index [[thread_position_in_threadgroup]],
+		uint threadgroup_size [[threads_per_threadgroup]]) {
+	auto meshlet_count = uint(mtl::min(ulong(shaders::maxMeshlets), meshlet_draw_count - (gid * shaders::maxMeshlets)));
+	auto base_id = payload.base_index = gid * shaders::maxMeshlets;
 
 	// We use an atomic counter for how many meshlets are visible instead of SIMD intrinsics,
 	// since those caused a GPU hang in some cases, for some reason. Might be useful to investigate
 	// that in the future, since I doubt this atomic is absolutely free.
-	threadgroup atomic<uint> visibleMeshlets;
+	threadgroup mtl::atomic<uint> visible_meshlets;
 
-	const uint meshletLoops = (meshletCount + threadGroupWidth - 1) / threadGroupWidth;
-	for (uint i = 0; i < meshletLoops; ++i) {
-		uint tidx = threadIndex + i * threadGroupWidth;
-		uint idx = min(tidx, meshletCount - 1U);
+	const auto meshlet_loops = (meshlet_count + threadgroup_size - 1) / threadgroup_size;
+	for (uint i = 0; i < meshlet_loops; ++i) {
+		auto tidx = thread_index + i * threadgroup_size;
+		auto idx = mtl::min(tidx, meshlet_count - 1U);
 
-		device const auto& draw = draws[baseId + idx];
-		device const auto& transformMatrix = transforms[draw.transformIndex];
+		device const auto& draw = draws[base_id + idx];
+		device const auto& transform_matrix = transforms[draw.transformIndex];
 		device const auto& primitive = primitives[draw.primitiveIndex];
 		device const auto& meshlet = primitive.meshletBuffer[draw.meshletIndex];
 
@@ -60,18 +60,20 @@ struct ObjectPayload {
 		bool visible = tidx == idx;
 
 		// Frustum culling
-		const auto worldAabbCenter = (transformMatrix * float4(meshlet.aabbCenter, 1.0f)).xyz;
-		const auto worldAabbExtent = shaders::getWorldSpaceAabbExtent(meshlet.aabbExtents.xyz, transformMatrix);
-		visible = visible && shaders::isAabbInFrustum(worldAabbCenter, worldAabbExtent, camera.frustum);
+		const auto world_aabb_center = (transform_matrix * float4(meshlet.aabbCenter, 1.0f)).xyz;
+		const auto world_aabb_extent = shaders::getWorldSpaceAabbExtent(meshlet.aabbExtents.xyz, transform_matrix);
+		visible = visible && shaders::isAabbInFrustum(world_aabb_center, world_aabb_extent, camera.frustum);
 
 		if (visible) {
-			payload.indices[atomic_fetch_add_explicit(&visibleMeshlets, 1, memory_order_relaxed)] = uint8_t(idx);
+			payload.indices[mtl::atomic_fetch_add_explicit(&visible_meshlets, 1, mtl::memory_order_relaxed)]
+				= uint8_t(idx);
 		}
 	}
 
-	threadgroup_barrier(mem_flags::mem_none);
-	if (threadIndex == 0) {
-		outGrid.set_threadgroups_per_grid(uint3(atomic_load_explicit(&visibleMeshlets, memory_order_relaxed), 1, 1));
+	threadgroup_barrier(mtl::mem_flags::mem_none);
+	if (thread_index == 0) {
+		outGrid.set_threadgroups_per_grid(
+			uint3(mtl::atomic_load_explicit(&visible_meshlets, mtl::memory_order_relaxed), 1, 1));
 	}
 }
 
@@ -80,83 +82,83 @@ struct ObjectPayload {
 /// we use fancy loops to properly process them, at the cost of potentially
 /// processing the last element multiple times.
 [[mesh]] void visbuffer_mesh(
-		Meshlet meshletOut,
-		object_data const ObjectPayload& payload [[payload]],
+		meshlet_t meshlet_out,
+		object_data const object_payload& payload [[payload]],
 		device const shaders::MeshletDraw* draws [[buffer(0)]],
-		device const float4x4* transforms [[buffer(1)]],
+		device const mtl::float4x4* transforms [[buffer(1)]],
 		device const shaders::Primitive* primitives [[buffer(2)]],
 		device const shaders::Camera& camera [[buffer(3)]],
 		device const shaders::Material* materials [[buffer(4)]],
-		uint payloadIndex [[threadgroup_position_in_grid]],
-		uint threadIndex [[thread_position_in_threadgroup]],
-		uint threadGroupWidth [[threads_per_threadgroup]]) {
-	const auto drawIdx = payload.baseIndex + payload.indices[payloadIndex];
+		uint payload_index [[threadgroup_position_in_grid]],
+		uint tid [[thread_position_in_threadgroup]],
+		uint threadgroup_size [[threads_per_threadgroup]]) {
+	const auto draw_id = payload.base_index + payload.indices[payload_index];
 
-	device auto& draw = draws[drawIdx];
+	device auto& draw = draws[draw_id];
 
 	device auto& primitive = primitives[draw.primitiveIndex];
 	device auto& meshlet = primitive.meshletBuffer[draw.meshletIndex];
 	device auto& material = materials[primitive.materialIndex];
 
-	if (threadIndex == 0) {
-		meshletOut.set_primitive_count(meshlet.triangleCount);
+	if (tid == 0) {
+		meshlet_out.set_primitive_count(meshlet.triangleCount);
 	}
 
-	device auto& transformMatrix = transforms[draw.transformIndex];
-	auto mvp = camera.viewProjection * transformMatrix;
+	device auto& transform_matrix = transforms[draw.transformIndex];
+	auto mvp = camera.viewProjection * transform_matrix;
 
-	threadgroup metal::array<float3, shaders::maxVertices> clipVertices;
+	threadgroup mtl::array<float3, shaders::maxVertices> clip_vertices;
 
-	const uint vertexLoops = (meshlet.vertexCount + threadGroupWidth - 1) / threadGroupWidth;
-	for (uint i = 0; i < vertexLoops; ++i) {
-		uint vidx = threadIndex + i * threadGroupWidth;
-		vidx = min(vidx, meshlet.vertexCount - 1U);
+	const auto vertex_loops = (meshlet.vertexCount + threadgroup_size - 1) / threadgroup_size;
+	for (uint i = 0; i < vertex_loops; ++i) {
+		auto vidx = tid + i * threadgroup_size;
+		vidx = mtl::min(vidx, meshlet.vertexCount - 1U);
 
-		const auto vertexIndex = primitive.vertexIndexBuffer[meshlet.vertexOffset + vidx];
-		device const auto& vtx = primitive.vertexBuffer[vertexIndex];
+		const auto vtx_idx = primitive.vertexIndexBuffer[meshlet.vertexOffset + vidx];
+		device const auto& vtx = primitive.vertexBuffer[vtx_idx];
 
 		auto pos = mvp * float4(vtx.position, 1.f);
-		clipVertices[vidx] = pos.xyw;
-		meshletOut.set_vertex(vidx, MeshletVertex {
+		clip_vertices[vidx] = pos.xyw;
+		meshlet_out.set_vertex(vidx, meshlet_vertex {
 			.position = pos,
 		});
 	}
 
-	threadgroup_barrier(mem_flags::mem_threadgroup);
+	threadgroup_barrier(mtl::mem_flags::mem_threadgroup);
 
-	const auto transformDeterminant = determinant(transformMatrix);
-	const uint primitiveLoops = (meshlet.triangleCount + threadGroupWidth - 1) / threadGroupWidth;
-	for (uint i = 0; i < primitiveLoops; ++i) {
-		uint pidx = threadIndex + i * threadGroupWidth;
-		pidx = min(pidx, meshlet.triangleCount - 1U);
+	const auto transform_det = mtl::determinant(transform_matrix);
+	const auto primitive_loops = (meshlet.triangleCount + threadgroup_size - 1) / threadgroup_size;
+	for (uint i = 0; i < primitive_loops; ++i) {
+		auto pidx = tid + i * threadgroup_size;
+		pidx = mtl::min(pidx, meshlet.triangleCount - 1U);
 
 		auto j = pidx * 3;
 		auto idx0 = primitive.primitiveIndexBuffer[meshlet.triangleOffset + j + 0];
 		auto idx1 = primitive.primitiveIndexBuffer[meshlet.triangleOffset + j + 1];
 		auto idx2 = primitive.primitiveIndexBuffer[meshlet.triangleOffset + j + 2];
 
-		meshletOut.set_index(j + 0, idx0);
-		meshletOut.set_index(j + 1, idx1);
-		meshletOut.set_index(j + 2, idx2);
+		meshlet_out.set_index(j + 0, idx0);
+		meshlet_out.set_index(j + 1, idx1);
+		meshlet_out.set_index(j + 2, idx2);
 
 		if (!material.doubleSided) {
-			const auto v0 = clipVertices[idx0];
-			const auto v1 = clipVertices[idx1];
-			const auto v2 = clipVertices[idx2];
-			const auto det = determinant(float3x3(v0, v1, v2));
+			const auto v0 = clip_vertices[idx0];
+			const auto v1 = clip_vertices[idx1];
+			const auto v2 = clip_vertices[idx2];
+			const auto det = determinant(mtl::float3x3(v0, v1, v2));
 
-			bool culled = transformDeterminant < 0.0f
+			bool culled = transform_det < 0.0f
 				? det > 0.0f // Front face culling with Y+ as up.
 				: det < 0.0f; // Back face culling with Y+ as up.
 
-			meshletOut.set_primitive(pidx, MeshletPrimitive {
-				.drawIndex = drawIdx,
+			meshlet_out.set_primitive(pidx, meshlet_primitive {
+				.draw_id = draw_id,
 				.id = pidx,
 				.culled = culled
 			});
 		} else {
-			meshletOut.set_primitive(pidx, MeshletPrimitive {
-				.drawIndex = drawIdx,
+			meshlet_out.set_primitive(pidx, meshlet_primitive {
+				.draw_id = draw_id,
 				.id = pidx,
 				.culled = false, // Material is double sided, meaning we can't cull.
 			});
@@ -164,67 +166,203 @@ struct ObjectPayload {
 	}
 }
 
-struct FragmentIn {
-	MeshletVertex vert;
-	MeshletPrimitive prim;
+struct fragment_in {
+	meshlet_vertex vert;
+	meshlet_primitive prim;
 };
 
-[[fragment]] uint visbuffer_frag(
-		FragmentIn in [[stage_in]]) {
-	return shaders::packVisBuffer(in.prim.drawIndex, in.prim.id);
+// I'm sorry about this, but this actually seems to work fine.
+struct rgb16unorm {
+	mtl::r16unorm<float> r;
+	mtl::r16unorm<float> g;
+	mtl::r16unorm<float> b;
+
+	rgb16unorm() = default;
+	rgb16unorm(float3 value) : r(value.r), g(value.g), b(value.b) {}
+
+	explicit operator float3() thread {
+		return float3(float(r), float(g), float(b));
+	}
+	explicit operator float3() threadgroup_imageblock {
+		return float3(float(r), float(g), float(b));
+	}
+};
+
+/// The imageblock struct used for the visbuffer fragment shader and the gbuffer generation
+/// tile shader. The idea is to make use of the benefits of a visbuffer to reduce fragment shader
+/// cost for each invocation and avoiding helper lanes for derivatives, and then recalculating the
+/// derivatives using the barycentrics in a tile shader to manually interpolate vertex attributes
+/// and generate the various GBuffer textures.
+struct visbuffer_tile_data {
+	mtl::rgba8unorm<float4> color [[raster_order_group(0)]];
+	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
+	uint visbuffer [[raster_order_group(0)]];
+
+	// Since barycentrics will usually only be in the [0, 1] range except when MSAA is used, we can
+	// safely use a unorm type with 16-bits per value to half our memory consumption for virtually no
+	// loss.
+	rgb16unorm barycentrics [[raster_order_group(0)]];
+};
+
+struct visbuffer_frag_out {
+	visbuffer_tile_data tile_data [[imageblock_data, alias_implicit_imageblock]];
+};
+
+/// We assume here that accessing the barycentrics is free, since they needed to be calculated
+/// anyway for generating the exact fragment position (I think).
+[[fragment]] visbuffer_frag_out visbuffer_frag(
+		fragment_in in [[stage_in]],
+		float3 barycentrics [[barycentric_coord]]) {
+	return {
+		.tile_data {
+			.visbuffer = uint32_t(shaders::visbuffer_data(in.prim.draw_id, in.prim.id)),
+			.barycentrics = barycentrics,
+		},
+	};
 }
 
-// Vertices of a basic cube
-constant const auto positions = metal::array<float3, 8> {
-	float3(1, -1, -1),
-	float3(1, 1, -1),
-	float3(-1, 1, -1),
-	float3(-1, -1, -1),
-	float3(1, -1, 1),
-	float3(1, 1, 1),
-	float3(-1, -1, 1),
-	float3(-1, 1, 1)
+uint3 get_vertex_indices(
+		device const shaders::Primitive& primitive,
+		device const shaders::Meshlet& meshlet,
+		uint32_t primitive_id) {
+	uchar3 indices(
+		primitive.primitiveIndexBuffer[meshlet.triangleOffset + primitive_id * 3 + 0],
+		primitive.primitiveIndexBuffer[meshlet.triangleOffset + primitive_id * 3 + 1],
+		primitive.primitiveIndexBuffer[meshlet.triangleOffset + primitive_id * 3 + 2]
+	);
+
+	return uint3(
+		primitive.vertexIndexBuffer[meshlet.vertexOffset + indices.x],
+		primitive.vertexIndexBuffer[meshlet.vertexOffset + indices.y],
+		primitive.vertexIndexBuffer[meshlet.vertexOffset + indices.z]
+	);
+}
+
+/// See http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
+/// for more details on how this works and the links to the relevant papers.
+/// This version is slightly different, since it takes a precomputed barycentrics vector,
+/// and only computes the derivatives.
+/// TODO: Explore replacing these calculations with half precision floats, since the precision
+///       issue shouldn't be noticeable here and recent Apple GPUs can run those ops at 2x
+mtl::gradient3d calculate_gradient(
+		float4 v0, float4 v1, float4 v2,
+		float3 barycentrics,
+		float2 pixel,
+		float2 size) {
+	pixel.y = -pixel.y; // flip because +Y is up.
+
+	auto invW = 1.f / float3(v0.w, v1.w, v2.w);
+
+	auto ndc0 = v0.xy * invW.x;
+	auto ndc1 = v1.xy * invW.y;
+	auto ndc2 = v2.xy * invW.z;
+
+	auto invDet = 1.f / mtl::determinant(mtl::float2x2(ndc2 - ndc1, ndc0 - ndc1));
+	auto ddx = float3(ndc1.y - ndc2.y, ndc2.y - ndc0.y, ndc0.y - ndc1.y) * invDet * invW;
+	auto ddy = float3(ndc2.x - ndc1.x, ndc0.x - ndc2.x, ndc1.x - ndc0.x) * invDet * invW;
+	auto ddxSum = mtl::dot(ddx, float3(1.f));
+	auto ddySum = mtl::dot(ddy, float3(1.f));
+
+	auto deltaVec = pixel - ndc0;
+	auto interpInvW = invW.x + deltaVec.x * ddxSum + deltaVec.y * ddySum;
+
+	ddx *= 2.f / size.x;
+	ddy *= 2.f / size.y;
+	ddxSum *= 2.f / size.x;
+	ddySum *= 2.f / size.y;
+
+	//ddy *= -1.f;
+	//ddySum *= -1.f;
+
+	auto interpW_ddx = 1.f / (interpInvW + ddxSum);
+	auto interpW_ddy = 1.f / (interpInvW + ddySum);
+
+	return mtl::gradient3d(
+		interpW_ddx * (barycentrics * interpInvW + ddx) - barycentrics,
+		interpW_ddy * (barycentrics * interpInvW + ddy) - barycentrics);
+}
+
+template <typename T, size_t N>
+mtl::vec<T, N> interpolate(float3 barycentrics, mtl::vec<T, N> v0, mtl::vec<T, N> v1, mtl::vec<T, N> v2) {
+	return barycentrics.x * v0
+		+ barycentrics.y * v1
+		+ barycentrics.z * v2;
+}
+
+float3 interpolate_with_deriv(float3 barycentrics, mtl::gradient3d gradient, float3 v) {
+	return float3(
+		mtl::dot(v, barycentrics),
+		mtl::dot(v, gradient.dPdx),
+		mtl::dot(v, gradient.dPdy));
+}
+
+struct interpolated_value {
+	float2 value;
+	mtl::gradient2d grad;
+	METAL_FUNC constexpr interpolated_value(float2 value, mtl::gradient2d grad) thread : value(value), grad(grad) {}
 };
 
-// Edge indices for a basic cube
-constant const auto edges = metal::array<uint, 12*2> {
-	0, 1,
-	0, 3,
-	0, 4,
-	2, 1,
-	2, 3,
-	2, 7,
-	6, 3,
-	6, 4,
-	6, 7,
-	5, 1,
-	5, 4,
-	5, 7
-};
+/// Interpolates the value from the given three vertices and interpolated it accordingly, while
+/// also computing its derivatives.
+interpolated_value interpolate_with_gradient(float3 barycentrics, mtl::gradient3d inp_grad, float2 v0, float2 v1, float2 v2) {
+	const auto i0 = interpolate_with_deriv(barycentrics, inp_grad, float3(v0.x, v1.x, v2.x));
+	const auto i1 = interpolate_with_deriv(barycentrics, inp_grad, float3(v0.y, v1.y, v2.y));
+	return interpolated_value(float2(i0.x, i1.x), mtl::gradient2d(float2(i0.y, i1.y), float2(i0.z, i1.z)));
+}
 
-struct MeshletAabbOutput {
-	float4 pos [[position]];
-};
-
-/// This vertex shader generates a cube for each meshlet AABB, which we use
-/// together with the visibility result buffer to perform occlusion culling.
-[[vertex]] MeshletAabbOutput meshlet_aabb_vert(
+/// This kernel/tile shader uses the visbuffer data and barycentrics from the previous fragment
+/// shader to generate a GBuffer.
+[[kernel]] void gbuffer_generation(
+		mtl::imageblock<visbuffer_tile_data> tile_data [[alias_implicit_imageblock]],
 		device const shaders::MeshletDraw* draws [[buffer(0)]],
-		device const float4x4* transforms [[buffer(1)]],
+		device const mtl::float4x4* transforms [[buffer(1)]],
 		device const shaders::Primitive* primitives [[buffer(2)]],
 		device const shaders::Camera& camera [[buffer(3)]],
-		uint instanceId [[instance_id]],
-		uint vertexId [[vertex_id]]) {
+		device const shaders::Material* materials [[buffer(4)]],
+		const shaders::ResourceTable resourceTable [[buffer(5)]],
+		ushort2 local_tid [[thread_position_in_threadgroup]],
+		ushort2 tid [[thread_position_in_grid]],
+		ushort2 grid_size [[threads_per_grid]]) {
+	threadgroup_imageblock visbuffer_tile_data* data = tile_data.data(local_tid);
 
-	device const auto& draw = draws[instanceId];
-	device const auto& transformMatrix = transforms[draw.transformIndex];
+	auto visbuffer = shaders::visbuffer_data(data->visbuffer);
+	if (!visbuffer.is_valid())
+		return;
+
+	device const auto& draw = draws[visbuffer.draw_index];
+	device const auto& transform_matrix = transforms[draw.transformIndex];
 	device const auto& primitive = primitives[draw.primitiveIndex];
+	device const auto& material = materials[primitive.materialIndex];
+
 	device const auto& meshlet = primitive.meshletBuffer[draw.meshletIndex];
+	auto indices = get_vertex_indices(primitive, meshlet, visbuffer.primitive_id);
 
-	auto position = positions[edges[vertexId]];
-	auto pos = position * meshlet.aabbExtents + meshlet.aabbCenter;
+	device const auto& vtx0 = primitive.vertexBuffer[indices.x];
+	device const auto& vtx1 = primitive.vertexBuffer[indices.y];
+	device const auto& vtx2 = primitive.vertexBuffer[indices.z];
 
-	return {
-		.pos = camera.viewProjection * transformMatrix * float4(pos, 1.f),
-	};
+	const auto mvp = camera.viewProjection * transform_matrix;
+	float2 size(grid_size.x, grid_size.y); // TODO: Is this actually correct?
+	float2 pixel = (float2(tid) / size) * 2.f - 1.f;
+	auto gradient = calculate_gradient(
+		mvp * float4(vtx0.position, 1.f),
+		mvp * float4(vtx1.position, 1.f),
+		mvp * float4(vtx2.position, 1.f),
+		float3(data->barycentrics), pixel, size);
+
+	device auto& albedo_tex = resourceTable[material.albedoIndex];
+
+	const auto color = interpolate(float3(data->barycentrics),
+		mtl::unpack_unorm4x8_to_float(vtx0.color),
+		mtl::unpack_unorm4x8_to_float(vtx1.color),
+		mtl::unpack_unorm4x8_to_float(vtx2.color));
+
+	const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient, float2(vtx0.uv), float2(vtx1.uv), float2(vtx2.uv));
+
+	const auto sampled = albedo_tex.tex.sample(
+		albedo_tex.sampler, uv.value, uv.grad);
+	data->color = color * float4(material.albedoFactor) * sampled;
+
+	data->normal = shaders::normal_encode(interpolate(float3(data->barycentrics),
+		float3(vtx0.normal), float3(vtx1.normal), float3(vtx2.normal)));
 }

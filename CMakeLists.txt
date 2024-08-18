@@ -187,6 +187,9 @@ target_include_directories(vk_gltf_viewer PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/in
 
 #- Metal shaders -------------------------------------------------------------------------------------------------------
 
+find_library(METAL_LIBRARY Metal)
+message(STATUS "Metal include dirs: ${METAL_LIBRARY}")
+
 file(GLOB_RECURSE MSL_SHADER_FILES "shaders/*.metal" "shaders/**/*.metal")
 set(MSL_SHADER_IR_FILES "")
 foreach(SHADER_FILE ${MSL_SHADER_FILES})
@@ -226,6 +229,7 @@ add_custom_command(
     COMMAND_EXPAND_LISTS
 )
 add_custom_target(metal_shader_library DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/shaders.metallib SOURCES ${MSL_SHADER_FILES})
+# target_include_directories(metal_shader_library PUBLIC "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/metal/macos/lib/clang/32023.155/include/metal")
 add_dependencies(vk_gltf_viewer metal_shader_library)
 
 # Copy all required runtime DLLs into the build directory

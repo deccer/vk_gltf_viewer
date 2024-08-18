@@ -56,22 +56,36 @@ struct VisbufferResolvePushConstants {
 	BUFFER_REF(Materials, Material) materialBuffer MEMBER_INIT(0);
 };
 
-FUNCTION_INLINE uint32_t packVisBuffer(uint32_t drawIndex, uint32_t primitiveId) {
+#if defined(SHADER_METAL)
+struct visbuffer_data {
+	uint32_t draw_index : drawIndexBits;
+	uint32_t primitive_id : triangleBits;
+
+	[[clang::always_inline]] constexpr visbuffer_data(uint32_t value) :
+		draw_index(value >> triangleBits), primitive_id(value & ((1 << triangleBits) - 1)) {}
+	[[clang::always_inline]] constexpr visbuffer_data(uint32_t draw_index, uint32_t primitive_id) :
+		draw_index(draw_index), primitive_id(primitive_id) {}
+
+	[[clang::always_inline]] constexpr bool is_valid() thread {
+		return uint32_t(*this) != visbufferClearValue;
+	}
+	[[clang::always_inline]] constexpr bool is_valid() threadgroup_imageblock {
+		return uint32_t(*this) != visbufferClearValue;
+	}
+
+	[[clang::always_inline]] constexpr explicit operator uint32_t() const thread {
+		return (draw_index << triangleBits) | primitive_id;
+	}
+	[[clang::always_inline]] constexpr explicit operator uint32_t() const threadgroup_imageblock {
+		return (draw_index << triangleBits) | primitive_id;
+	}
+};
+static_assert(sizeof(visbuffer_data) == sizeof(uint32_t), "the visbuffer type needs to be exactly 32-bits.");
+#elif defined(SHADER_GLSL)
+uint32_t packVisBuffer(uint32_t drawIndex, uint32_t primitiveId) {
 	return (drawIndex << triangleBits) | primitiveId;
 }
 
-#if !defined(SHADER_GLSL)
-struct VisbufferData {
-	uint32_t drawIndex;
-	uint32_t primitiveId;
-};
-FUNCTION_INLINE VisbufferData unpackVisBuffer(uint32_t visbuffer) {
-	return {
-		.drawIndex = visbuffer >> triangleBits,
-		.primitiveId = visbuffer & ((1 << triangleBits) - 1),
-	};
-}
-#else
 void unpackVisBuffer(uint32_t visBuffer, out uint32_t drawIndex, out uint32_t primitiveId) {
 	primitiveId = visBuffer & ((1 << triangleBits) - 1);
 	drawIndex = visBuffer >> triangleBits;

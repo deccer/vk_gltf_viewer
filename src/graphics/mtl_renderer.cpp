@@ -113,6 +113,81 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 	}
 }
 
+static constexpr std::array<MTL::PixelFormat, 2> gbuffer_formats {{
+	MTL::PixelFormatRGBA8Unorm, // Color
+	MTL::PixelFormatRG16Unorm, // Normals
+}};
+
+void gmtl::visbuffer_pass::init_pass(MtlRenderer& renderer) {
+	ZoneScoped;
+	auto device = renderer.device;
+
+	auto* objectFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_object"))->autorelease();
+	auto* meshFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_mesh"))->autorelease();
+	auto* fragFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_frag"))->autorelease();
+
+	auto* visbuffer_pipeline_desc = MTL::MeshRenderPipelineDescriptor::alloc()->init()->autorelease();
+	visbuffer_pipeline_desc->setObjectFunction(objectFunction);
+	visbuffer_pipeline_desc->setMeshFunction(meshFunction);
+	visbuffer_pipeline_desc->setFragmentFunction(fragFunction);
+	visbuffer_pipeline_desc->setRasterSampleCount(1);
+
+	for (std::size_t i = 0; auto& format : gbuffer_formats)
+		visbuffer_pipeline_desc->colorAttachments()->object(i++)->setPixelFormat(format);
+	visbuffer_pipeline_desc->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
+
+	NS::Error* error = nullptr;
+	visbuffer_pipeline = NS::TransferPtr(
+			device->newRenderPipelineState(visbuffer_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error));
+	if (!visbuffer_pipeline) {
+		fmt::print("{}", error->localizedDescription()->utf8String());
+	}
+
+	auto* gbuffer_tile_function = renderer.globalLibrary->newFunction(MTLSTR("gbuffer_generation"));
+	auto* gbuffer_tile_desc = MTL::TileRenderPipelineDescriptor::alloc()->init()->autorelease();
+	gbuffer_tile_desc->setTileFunction(gbuffer_tile_function);
+
+	for (std::size_t i = 0; auto& format : gbuffer_formats)
+		gbuffer_tile_desc->colorAttachments()->object(i++)->setPixelFormat(format);
+
+	gbuffer_tile_pipeline = NS::TransferPtr(
+		device->newRenderPipelineState(gbuffer_tile_desc, MTL::PipelineOptionNone, nullptr, &error));
+	if (!gbuffer_tile_pipeline) {
+		fmt::print("{}", error->localizedDescription()->utf8String());
+	}
+
+	// Create the depth state with reverse depth
+	auto* depthStateDesc = MTL::DepthStencilDescriptor::alloc()->init();
+	depthStateDesc->setDepthWriteEnabled(true);
+	depthStateDesc->setDepthCompareFunction(MTL::CompareFunctionGreaterEqual);
+
+	depth_state = NS::TransferPtr(device->newDepthStencilState(depthStateDesc));
+
+	update_resolution(renderer);
+}
+
+void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
+	ZoneScoped;
+	auto device = renderer.device;
+
+	auto size = renderer.layer->drawableSize();
+	auto* normal_desc = MTL::TextureDescriptor::texture2DDescriptor(
+		MTL::PixelFormatRG16Unorm, size.width, size.height, false);
+	normal_desc->setUsage(MTL::TextureUsageRenderTarget);
+	normal_desc->setStorageMode(MTL::StorageModePrivate);
+
+	normal_texture = NS::TransferPtr(device->newTexture(normal_desc));
+	normal_texture->setLabel(MTLSTR("Normals"));
+
+	auto* depthDesc = MTL::TextureDescriptor::texture2DDescriptor(
+			MTL::PixelFormatDepth32Float, size.width, size.height, false);
+	depthDesc->setUsage(MTL::TextureUsageShaderRead & MTL::TextureUsageRenderTarget);
+	depthDesc->setStorageMode(MTL::StorageModePrivate);
+
+	depth_texture = NS::TransferPtr(device->newTexture(depthDesc));
+	depth_texture->setLabel(MTLSTR("Depth texture"));
+}
+
 gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	ZoneScoped;
 	// pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
@@ -167,88 +242,10 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
 	defaultSampler = std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
 
-	initVisbufferPass();
-	initVisbufferResolvePass();
+	visbuffer_pass.init_pass(*this);
 }
 
 gmtl::MtlRenderer::~MtlRenderer() noexcept = default;
-
-void gmtl::MtlRenderer::initVisbufferPass() {
-	ZoneScoped;
-	auto* objectFunction = globalLibrary->newFunction(NS::String::string("visbuffer_object", NS::UTF8StringEncoding))->autorelease();
-	auto* meshFunction = globalLibrary->newFunction(NS::String::string("visbuffer_mesh", NS::UTF8StringEncoding))->autorelease();
-	auto* fragFunction = globalLibrary->newFunction(NS::String::string("visbuffer_frag", NS::UTF8StringEncoding))->autorelease();
-
-	auto* pipelineDescriptor = MTL::MeshRenderPipelineDescriptor::alloc()->init()->autorelease();
-	pipelineDescriptor->setObjectFunction(objectFunction);
-	pipelineDescriptor->setMeshFunction(meshFunction);
-	pipelineDescriptor->setFragmentFunction(fragFunction);
-	pipelineDescriptor->setRasterSampleCount(1);
-
-	auto* visbufferAttachment = pipelineDescriptor->colorAttachments()->object(0);
-	visbufferAttachment->setPixelFormat(MTL::PixelFormatR32Uint);
-
-	pipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
-
-	// Explicitly set all of the buffer bindings to immutable
-	pipelineDescriptor->objectBuffers()->object(0)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->objectBuffers()->object(1)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->objectBuffers()->object(2)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->objectBuffers()->object(3)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->objectBuffers()->object(4)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->meshBuffers()->object(0)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->meshBuffers()->object(1)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->meshBuffers()->object(2)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->meshBuffers()->object(3)->setMutability(MTL::MutabilityImmutable);
-	pipelineDescriptor->meshBuffers()->object(4)->setMutability(MTL::MutabilityImmutable);
-
-	NS::Error* error = nullptr;
-	visbufferPass.pipelineState = NS::TransferPtr(
-			device->newRenderPipelineState(pipelineDescriptor, MTL::PipelineOptionNone, nullptr, &error));
-	if (!visbufferPass.pipelineState) {
-		fmt::print("{}", error->localizedDescription()->utf8String());
-	}
-
-	// Create the depth state with reverse depth
-	auto* depthStateDesc = MTL::DepthStencilDescriptor::alloc()->init();
-	depthStateDesc->setDepthWriteEnabled(true);
-	depthStateDesc->setDepthCompareFunction(MTL::CompareFunctionGreaterEqual);
-
-	visbufferPass.depthState = NS::TransferPtr(device->newDepthStencilState(depthStateDesc));
-
-	// Create the visbuffer & depth texture
-	auto size = layer->drawableSize();
-	auto* visbufferDesc = MTL::TextureDescriptor::texture2DDescriptor(
-			MTL::PixelFormatR32Uint, size.width, size.height, false);
-	visbufferDesc->setUsage(MTL::TextureUsageShaderRead & MTL::TextureUsageRenderTarget);
-	visbufferDesc->setStorageMode(MTL::StorageModePrivate);
-
-	visbufferPass.visbuffer = NS::TransferPtr(device->newTexture(visbufferDesc));
-	visbufferPass.visbuffer->setLabel(NS::String::string("Visbuffer", NS::UTF8StringEncoding));
-
-	auto* depthDesc = MTL::TextureDescriptor::texture2DDescriptor(
-			MTL::PixelFormatDepth32Float, size.width, size.height, false);
-	depthDesc->setUsage(MTL::TextureUsageShaderRead & MTL::TextureUsageRenderTarget);
-	depthDesc->setStorageMode(MTL::StorageModePrivate);
-
-	visbufferPass.depthTexture = NS::TransferPtr(device->newTexture(depthDesc));
-	visbufferPass.depthTexture->setLabel(NS::String::string("Depth texture", NS::UTF8StringEncoding));
-}
-
-void gmtl::MtlRenderer::initVisbufferResolvePass() {
-	ZoneScoped;
-	auto* resolveFunction = globalLibrary->newFunction(NS::String::string("visbuffer_resolve", NS::UTF8StringEncoding))->autorelease();
-
-	auto* pipelineDescriptor = MTL::ComputePipelineDescriptor::alloc()->init()->autorelease();
-	pipelineDescriptor->setComputeFunction(resolveFunction);
-
-	NS::Error* error = nullptr;
-	visbufferResolvePass.pipelineState = NS::TransferPtr(
-			device->newComputePipelineState(pipelineDescriptor, MTL::PipelineOptionNone, nullptr, &error));
-	if (!visbufferResolvePass.pipelineState) {
-		fmt::print("{}", error->localizedDescription()->utf8String());
-	}
-}
 
 std::unique_ptr<graphics::Buffer> gmtl::MtlRenderer::createUniqueBuffer() {
 	ZoneScoped;
@@ -461,6 +458,8 @@ void gmtl::MtlRenderer::updateResolution(glm::u32vec2 resolution) {
 	ZoneScoped;
 	resolution *= 2; // TODO: Get CA::Layer::contentScale here.
 	layer->setDrawableSize(CGSizeMake(resolution.x, resolution.y));
+
+	visbuffer_pass.update_resolution(*this);
 }
 
 auto gmtl::MtlRenderer::getRenderResolution() const noexcept -> glm::u32vec2 {
@@ -501,92 +500,76 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 
 	auto drawCount = scene.meshletDraws.size();
 	if (drawCount > 0) {
-		auto* visbufferPassDescriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
-		auto* visbufferAttachment = visbufferPassDescriptor->colorAttachments()->object(0);
-		visbufferAttachment->setLoadAction(MTL::LoadActionClear);
-		visbufferAttachment->setStoreAction(MTL::StoreActionStore);
-		visbufferAttachment->setTexture(visbufferPass.visbuffer.get());
+		auto* visbuffer_pass_descriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
+		visbuffer_pass_descriptor->setImageblockSampleLength(visbuffer_pass.gbuffer_tile_pipeline->imageblockSampleLength());
 
-		// We need to clear using the visbuffer clear value. Metal only uses doubles in its ClearColor struct,
-		// but 2^32 (which is visbufferClearValue currently) is perfectly representable by a double precision float,
-		// so this will work for now.
-		visbufferAttachment->setClearColor(MTL::ClearColor::Make(static_cast<double>(shaders::visbufferClearValue), 0., 0., 0.));
+		auto* albedo_attachment = visbuffer_pass_descriptor->colorAttachments()->object(0);
+		albedo_attachment->setLoadAction(MTL::LoadActionClear);
+		albedo_attachment->setStoreAction(MTL::StoreActionStore);
+		albedo_attachment->setTexture(drawable->texture());
+		albedo_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 1.));
 
-		auto* depthAttachment = MTL::RenderPassDepthAttachmentDescriptor::alloc()->init()->autorelease();
-		depthAttachment->setLoadAction(MTL::LoadActionClear);
+		auto* normal_attachment = visbuffer_pass_descriptor->colorAttachments()->object(1);
+		normal_attachment->setLoadAction(MTL::LoadActionClear);
+		normal_attachment->setStoreAction(MTL::StoreActionStore);
+		normal_attachment->setTexture(visbuffer_pass.normal_texture.get());
+		normal_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
+
+		auto* depthAttachment = visbuffer_pass_descriptor->depthAttachment();
 		depthAttachment->setClearDepth(0.);
-		depthAttachment->setTexture(visbufferPass.depthTexture.get());
-		visbufferPassDescriptor->setDepthAttachment(depthAttachment);
+		depthAttachment->setLoadAction(MTL::LoadActionClear);
+		depthAttachment->setStoreAction(MTL::StoreActionStore);
+		depthAttachment->setTexture(visbuffer_pass.depth_texture.get());
 
-		auto* visbufferEncoder = buffer->renderCommandEncoder(visbufferPassDescriptor);
-		visbufferEncoder->setRenderPipelineState(visbufferPass.pipelineState.get());
-		visbufferEncoder->setDepthStencilState(visbufferPass.depthState.get());
+		auto* encoder = buffer->renderCommandEncoder(visbuffer_pass_descriptor);
+		encoder->setLabel(MTLSTR("Visbuffer raster"));
+
+		encoder->setRenderPipelineState(visbuffer_pass.visbuffer_pipeline.get());
+		encoder->setDepthStencilState(visbuffer_pass.depth_state.get());
 
 		auto& sceneDrawBuffers = scene.drawBuffers[frameIndex];
 
-		visbufferEncoder->setObjectBytes(&drawCount, sizeof drawCount, 0);
-		visbufferEncoder->setObjectBuffer(cameraBuffers[frameIndex].get(), 0, 1);
-		visbufferEncoder->setObjectBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 2);
-		visbufferEncoder->setObjectBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 3);
-		visbufferEncoder->setObjectBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 4);
-
-		visbufferEncoder->setMeshBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
-		visbufferEncoder->setMeshBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
-		visbufferEncoder->setMeshBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
-		visbufferEncoder->setMeshBuffer(cameraBuffers[frameIndex].get(), 0, 3);
-		visbufferEncoder->setMeshBuffer(materialBuffers[frameIndex].get(), 0, 4);
-
 		for (auto& meshes : scene.meshes) {
-			visbufferEncoder->useResource(meshes.mesh->vertexIndexBuffer.get(), MTL::ResourceUsageRead);
-			visbufferEncoder->useResource(meshes.mesh->primitiveIndexBuffer.get(), MTL::ResourceUsageRead);
-			visbufferEncoder->useResource(meshes.mesh->vertexBuffer.get(), MTL::ResourceUsageRead);
-			visbufferEncoder->useResource(meshes.mesh->meshletBuffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->vertexIndexBuffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->primitiveIndexBuffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->vertexBuffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->meshletBuffer.get(), MTL::ResourceUsageRead);
 		}
+
+		encoder->setObjectBytes(&drawCount, sizeof drawCount, 0);
+		encoder->setObjectBuffer(cameraBuffers[frameIndex].get(), 0, 1);
+		encoder->setObjectBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 2);
+		encoder->setObjectBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 3);
+		encoder->setObjectBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 4);
+
+		encoder->setMeshBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
+		encoder->setMeshBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
+		encoder->setMeshBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
+		encoder->setMeshBuffer(cameraBuffers[frameIndex].get(), 0, 3);
+		encoder->setMeshBuffer(materialBuffers[frameIndex].get(), 0, 4);
 
 		// We cull manually per primitive in the mesh shader
-		visbufferEncoder->setCullMode(MTL::CullModeNone);
+		encoder->setCullMode(MTL::CullModeNone);
 
-		visbufferEncoder->drawMeshThreadgroups(
+		encoder->drawMeshThreadgroups(
 				MTL::Size((drawCount + shaders::maxMeshlets - 1) / shaders::maxMeshlets, 1, 1),
-				MTL::Size(visbufferPass.pipelineState->objectThreadExecutionWidth(), 1, 1),
-				MTL::Size(visbufferPass.pipelineState->meshThreadExecutionWidth(), 1, 1));
+				MTL::Size(visbuffer_pass.visbuffer_pipeline->objectThreadExecutionWidth(), 1, 1),
+				MTL::Size(visbuffer_pass.visbuffer_pipeline->meshThreadExecutionWidth(), 1, 1));
 
-		visbufferEncoder->endEncoding();
-	}
+		encoder->setRenderPipelineState(visbuffer_pass.gbuffer_tile_pipeline.get());
 
-	if (drawCount > 0) {
-		auto* resolveEncoder = buffer->computeCommandEncoder();
-		resolveEncoder->setComputePipelineState(visbufferResolvePass.pipelineState.get());
+		encoder->setTileBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
+		encoder->setTileBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
+		encoder->setTileBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
+		encoder->setTileBuffer(cameraBuffers[frameIndex].get(), 0, 3);
+		encoder->setTileBuffer(materialBuffers[frameIndex].get(), 0, 4);
+		encoder->setTileBuffer(resourceTable->sampledImageBuffer, 0, 5);
+		resourceTable->encodeUsage(encoder);
 
-		auto& sceneDrawBuffers = scene.drawBuffers[frameIndex];
+		encoder->dispatchThreadsPerTile(
+			MTL::Size::Make(encoder->tileHeight(), encoder->tileWidth(), 1));
 
-		resolveEncoder->setBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
-		resolveEncoder->setBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
-		resolveEncoder->setBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
-		resolveEncoder->setBuffer(cameraBuffers[frameIndex].get(), 0, 3);
-		resolveEncoder->setBuffer(materialBuffers[frameIndex].get(), 0, 4);
-		resolveEncoder->setBuffer(resourceTable->sampledImageBuffer, 0, 5);
-
-		resourceTable->encodeUsage(resolveEncoder);
-
-		resolveEncoder->setTexture(visbufferPass.visbuffer.get(), 0);
-		resolveEncoder->setTexture(drawable->texture(), 1);
-
-		for (auto& meshes : scene.meshes) {
-			resolveEncoder->useResource(meshes.mesh->vertexIndexBuffer.get(), MTL::ResourceUsageRead);
-			resolveEncoder->useResource(meshes.mesh->primitiveIndexBuffer.get(), MTL::ResourceUsageRead);
-			resolveEncoder->useResource(meshes.mesh->vertexBuffer.get(), MTL::ResourceUsageRead);
-			resolveEncoder->useResource(meshes.mesh->meshletBuffer.get(), MTL::ResourceUsageRead);
-		}
-
-		auto threadgroupSize = MTL::Size::Make(16, 16, 1);
-		auto threadgroupCount = MTL::Size::Make(
-			(visbufferPass.visbuffer->width() + threadgroupSize.width - 1) / threadgroupSize.width,
-			(visbufferPass.visbuffer->height() + threadgroupSize.height - 1) / threadgroupSize.height,
-			1);
-		resolveEncoder->dispatchThreadgroups(threadgroupCount, threadgroupSize);
-
-		resolveEncoder->endEncoding();
+		encoder->endEncoding();
 	}
 
 	imguiRenderer->draw(buffer, drawable, getRenderResolution(), frameIndex, drawCount == 0);

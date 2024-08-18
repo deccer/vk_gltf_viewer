@@ -71,7 +71,8 @@ struct Vertex {
 #else
 	packed_u8vec4 color;
 #endif
-	packed_u8vec3 normal;
+
+	packed_fvec3 normal;
 
 // Quantized float16_t vec2. TODO: glm has half float types, use those?
 #if defined(SHADER_CPP)

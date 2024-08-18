@@ -11,46 +11,47 @@
 #include <metal_stdlib>
 
 namespace shaders {
-	using namespace metal;
+	namespace mtl = metal;
+	using namespace mtl;
 
-	using fvec2 = metal::float2;
-	using fvec3 = metal::float3;
-	using fvec4 = metal::float4;
-	using packed_fvec2 = metal::packed_float2;
-	using packed_fvec3 = metal::packed_float3;
-	using packed_fvec4 = metal::packed_float4;
+	using fvec2 = mtl::float2;
+	using fvec3 = mtl::float3;
+	using fvec4 = mtl::float4;
+	using packed_fvec2 = mtl::packed_float2;
+	using packed_fvec3 = mtl::packed_float3;
+	using packed_fvec4 = mtl::packed_float4;
 
-	using bvec2 = metal::bool2;
-	using bvec3 = metal::bool3;
-	using bvec4 = metal::bool4;
+	using bvec2 = mtl::bool2;
+	using bvec3 = mtl::bool3;
+	using bvec4 = mtl::bool4;
 
-	using u8vec2 = metal::uchar2;
-	using u8vec3 = metal::uchar3;
-	using u8vec4 = metal::uchar4;
-	using packed_u8vec2 = metal::packed_uchar2;
-	using packed_u8vec3 = metal::packed_uchar3;
-	using packed_u8vec4 = metal::packed_uchar4;
+	using u8vec2 = mtl::uchar2;
+	using u8vec3 = mtl::uchar3;
+	using u8vec4 = mtl::uchar4;
+	using packed_u8vec2 = mtl::packed_uchar2;
+	using packed_u8vec3 = mtl::packed_uchar3;
+	using packed_u8vec4 = mtl::packed_uchar4;
 
-	using u16vec2 = metal::ushort2;
-	using u16vec3 = metal::ushort3;
-	using u16vec4 = metal::ushort4;
-	using packed_u16vec2 = metal::packed_ushort2;
-	using packed_u16vec3 = metal::packed_ushort3;
-	using packed_u16vec4 = metal::packed_ushort4;
+	using u16vec2 = mtl::ushort2;
+	using u16vec3 = mtl::ushort3;
+	using u16vec4 = mtl::ushort4;
+	using packed_u16vec2 = mtl::packed_ushort2;
+	using packed_u16vec3 = mtl::packed_ushort3;
+	using packed_u16vec4 = mtl::packed_ushort4;
 
-	using f16vec2 = metal::half2;
-	using f16vec3 = metal::half3;
-	using f16vec4 = metal::half4;
-	using packed_f16vec2 = metal::packed_half2;
-	using packed_f16vec3 = metal::packed_half3;
-	using packed_f16vec4 = metal::packed_half4;
+	using f16vec2 = mtl::half2;
+	using f16vec3 = mtl::half3;
+	using f16vec4 = mtl::half4;
+	using packed_f16vec2 = mtl::packed_half2;
+	using packed_f16vec3 = mtl::packed_half3;
+	using packed_f16vec4 = mtl::packed_half4;
 
-	using fmat3 = metal::float3x3;
-	using fmat4 = metal::float4x4;
+	using fmat3 = mtl::float3x3;
+	using fmat4 = mtl::float4x4;
 }
 
 #define SHADER_CONSTANT static constant
-#define SHADER_ARRAY(Type, Name, Count) metal::array<Type, Count> Name
+#define SHADER_ARRAY(Type, Name, Count) mtl::array<Type, Count> Name
 #define BUFFER_REF(Name, Type) device Type*
 #define SHADER_BOOL alignas(4) bool
 #define MEMBER_INIT(Value) = Value
@@ -69,6 +70,7 @@ namespace shaders {
 #include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <glm/gtc/type_precision.hpp>
 #include <vulkan/vk.hpp>
 namespace shaders {
 	using int8_t = std::int8_t;

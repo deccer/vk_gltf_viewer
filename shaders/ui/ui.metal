@@ -2,7 +2,7 @@
 
 #include "ui.h"
 
-using namespace metal;
+namespace mtl = metal;
 
 struct RasterizerOutput {
 	float4 position [[position]];
@@ -13,11 +13,11 @@ struct RasterizerOutput {
 [[vertex]] RasterizerOutput ui_vert(
 		uint vertexId [[vertex_id]],
 		constant const shaders::UiPushConstants& constants [[buffer(0)]]) {
-    const device auto& vert = constants.vertices[vertexId];
+	const device auto& vert = constants.vertices[vertexId];
 	auto pos = vert.pos * constants.scale + constants.translate;
 	return RasterizerOutput {
 		float4(pos.x, -pos.y, 0, 1),
-		metal::unpack_unorm4x8_to_float(vert.col),
+		mtl::unpack_unorm4x8_to_float(vert.col),
 		vert.uv,
 	};
 }
