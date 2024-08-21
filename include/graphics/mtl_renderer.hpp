@@ -53,8 +53,10 @@ class MeshletMesh : public graphics::Mesh {
 public:
 	NS::SharedPtr<MTL::Buffer> vertexIndexBuffer;
 	NS::SharedPtr<MTL::Buffer> primitiveIndexBuffer;
-	NS::SharedPtr<MTL::Buffer> vertexBuffer;
 	NS::SharedPtr<MTL::Buffer> meshletBuffer;
+	NS::SharedPtr<MTL::Buffer> positionBuffer;
+	NS::SharedPtr<MTL::Buffer> vertexBuffer;
+	std::array<NS::SharedPtr<MTL::Buffer>, shaders::max_uv_sets> uv_buffers;
 
 	glm::fvec3 aabbExtents;
 	glm::fvec3 aabbCenter;
@@ -68,9 +70,9 @@ public:
 
 struct MeshletSceneMesh {
 	std::shared_ptr<MeshletMesh> mesh;
-	shaders::Primitive primitive;
+	shaders::primitive_t primitive;
 
-	explicit MeshletSceneMesh(std::shared_ptr<MeshletMesh> mesh, shaders::Primitive primitive)
+	explicit MeshletSceneMesh(std::shared_ptr<MeshletMesh> mesh, shaders::primitive_t primitive)
 			: mesh(std::move(mesh)), primitive(primitive) {}
 	MeshletSceneMesh(MeshletSceneMesh&& other) noexcept
 			: mesh(std::move(other.mesh)), primitive(other.primitive) {}
@@ -88,7 +90,7 @@ public:
 
 	std::vector<MeshletSceneMesh> meshes;
 	std::vector<glm::fmat4x4> transforms;
-	std::vector<shaders::MeshletDraw> meshletDraws;
+	std::vector<shaders::meshlet_draw_t> meshletDraws;
 
 	std::vector<MeshletDrawBuffers> drawBuffers;
 
@@ -139,7 +141,7 @@ class MtlRenderer : public graphics::Renderer {
 
 	std::vector<NS::SharedPtr<MTL::Buffer>> cameraBuffers;
 
-	std::vector<shaders::Material> materials;
+	std::vector<shaders::material_t> materials;
 	std::vector<NS::SharedPtr<MTL::Buffer>> materialBuffers;
 
 	std::shared_ptr<MtlSampler> defaultSampler;
@@ -153,10 +155,11 @@ public:
 	std::unique_ptr<Buffer> createUniqueBuffer() override;
 	std::shared_ptr<Buffer> createSharedBuffer() override;
 
-	MaterialIndex createMaterial(shaders::Material material) override;
+	MaterialIndex createMaterial(shaders::material_t material) override;
 
 	std::shared_ptr<Mesh> createSharedMesh(
-			std::span<shaders::Vertex> vertexBuffer, std::span<index_t> indexBuffer,
+				std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
+				std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
 			glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
 			MaterialIndex materialIndex) override;
 

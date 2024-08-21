@@ -104,7 +104,8 @@ public:
 	std::shared_ptr<Buffer> createSharedBuffer() override;
 
 	std::shared_ptr<Mesh> createSharedMesh(
-			std::span<shaders::Vertex> vertexBuffer, std::span<index_t> indexBuffer,
+			std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
+			std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
 			glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
 			MaterialIndex materialIndex) override;
 

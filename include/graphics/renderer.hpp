@@ -64,10 +64,11 @@ namespace graphics {
 		[[nodiscard]] virtual MaterialIndex getDefaultMaterialIndex() const noexcept {
 			return 0;
 		}
-		[[nodiscard]] virtual MaterialIndex createMaterial(shaders::Material material) = 0;
+		[[nodiscard]] virtual MaterialIndex createMaterial(shaders::material_t material) = 0;
 
 		[[nodiscard]] virtual std::shared_ptr<Mesh> createSharedMesh(
-				std::span<shaders::Vertex> vertexBuffer, std::span<index_t> indexBuffer,
+				std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
+				std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
 				glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
 				MaterialIndex materialIndex) = 0;
 

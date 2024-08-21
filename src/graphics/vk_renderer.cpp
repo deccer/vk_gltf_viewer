@@ -45,14 +45,15 @@ std::shared_ptr<graphics::Buffer> gvk::VkRenderer::createSharedBuffer() {
 }
 
 std::shared_ptr<graphics::Mesh> gvk::VkRenderer::createSharedMesh(
-		std::span<shaders::Vertex> vertexBuffer, std::span<index_t> indexBuffer,
+		std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
+		std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
 		glm::fvec3 aabbCenter, glm::fvec3 aabbExtents, MaterialIndex materialIndex) {
 	ZoneScoped;
 
 	// Generate the meshlets
 	constexpr float coneWeight = 0.0f; // We leave this as 0 because we're not using cluster cone culling.
 	constexpr auto maxPrimitives = fastgltf::alignDown(shaders::maxPrimitives, 4U); // meshopt requires the primitive count to be aligned to 4.
-	std::size_t maxMeshlets = meshopt_buildMeshletsBound(indexBuffer.size(), shaders::maxVertices, maxPrimitives);
+	std::size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), shaders::maxVertices, maxPrimitives);
 	std::vector<meshopt_Meshlet> meshlets(maxMeshlets);
 	std::vector<std::uint32_t> meshletVertices(maxMeshlets * shaders::maxVertices);
 	std::vector<std::uint8_t> meshletTriangles(maxMeshlets * maxPrimitives * 3);

@@ -89,7 +89,7 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 	{
 		const VkBufferCreateInfo bufferCreateInfo {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = primitiveBuffers.size() * sizeof(shaders::Primitive),
+			.size = primitiveBuffers.size() * sizeof(shaders::primitive_t),
 			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
 					 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 			// We need to use CONCURRENT since we're using the old buffer to copy while it still may be in use
@@ -102,9 +102,9 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 		vk::setDebugUtilsName(device.get(), primitiveBuffer->getHandle(), "Primitive buffer");
 
 		auto primitiveStagingBuffer = device.get().createHostStagingBuffer(
-			task->primitives.size() * sizeof(shaders::Primitive));
+			task->primitives.size() * sizeof(shaders::primitive_t));
 		{
-			ScopedMap<shaders::Primitive> map(*primitiveStagingBuffer);
+			ScopedMap<shaders::primitive_t> map(*primitiveStagingBuffer);
 			//for (std::size_t i = 0; auto& primitive: task->primitives) {
 			//	auto& p = map.get()[i++] = primitive.second;
 			//	p.materialIndex += materialOffset;
@@ -146,7 +146,7 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 
 		const VkBufferCreateInfo bufferCreateInfo {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = materials.size() * sizeof(shaders::Material),
+			.size = materials.size() * sizeof(shaders::material_t),
 			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
 					 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 			// We need to use CONCURRENT since we're using the old buffer to copy while it still may be in use
@@ -159,9 +159,9 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 		vk::setDebugUtilsName(device.get(), materialBuffer->getHandle(), "Material buffer");
 
 		auto materialStagingBuffer = device.get().createHostStagingBuffer(
-			materials.size() * sizeof(shaders::Material));
+			materials.size() * sizeof(shaders::material_t));
 		{
-			ScopedMap<shaders::Material> map(*materialStagingBuffer);
+			ScopedMap<shaders::material_t> map(*materialStagingBuffer);
 			for (std::size_t i = 0; auto& material: materials) {
 				map.get()[i++] = material;
 			}
@@ -235,8 +235,8 @@ void World::rebuildDrawBuffer(std::size_t frameIndex) {
 
 	VkDeviceSize currentDrawBufferSize = drawBuffer.meshletDrawBuffer ? drawBuffer.meshletDrawBuffer->getBufferSize() : 0;
 
-	std::vector<shaders::MeshletDraw> draws;
-	draws.reserve(currentDrawBufferSize / sizeof(shaders::MeshletDraw));
+	std::vector<shaders::meshlet_draw_t> draws;
+	draws.reserve(currentDrawBufferSize / sizeof(shaders::meshlet_draw_t));
 
 	auto& scene = scenes[0];
 	std::uint32_t transformCount = 0;
@@ -253,10 +253,10 @@ void World::rebuildDrawBuffer(std::size_t frameIndex) {
 			for (auto& primitive : meshes[*node.meshIndex].primitiveIndices) {
 				auto& buffers = primitiveBuffers[primitive];
 				for (std::uint32_t i = 0; i < buffers.meshletCount; ++i) {
-					draws.emplace_back(shaders::MeshletDraw {
-						.primitiveIndex = static_cast<std::uint32_t>(primitive),
-						.meshletIndex = i,
-						.transformIndex = transformIndex,
+					draws.emplace_back(shaders::meshlet_draw_t {
+						.primitive_index = static_cast<std::uint32_t>(primitive),
+						.meshlet_index = i,
+						.transform_index = transformIndex,
 					});
 				}
 			}
@@ -270,7 +270,7 @@ void World::rebuildDrawBuffer(std::size_t frameIndex) {
 		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
 	};
 
-	const auto requiredDrawBufferSize = draws.size() * sizeof(shaders::MeshletDraw);
+	const auto requiredDrawBufferSize = draws.size() * sizeof(shaders::meshlet_draw_t);
 	if (currentDrawBufferSize < requiredDrawBufferSize) {
 		const VkBufferCreateInfo bufferCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,

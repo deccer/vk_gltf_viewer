@@ -5,6 +5,7 @@
 
 #include <mesh_common.h>
 
+#include <util.hpp>
 #include <vk_gltf_viewer/assets.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -371,13 +372,24 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 		auto& gltfMaterial = asset.materials[i];
 		auto& pbr = gltfMaterial.pbrData;
 
+		shaders::material_t material {
+			.albedo_factor = glm::make_vec4(pbr.baseColorFactor.data()),
+			.alpha_cutoff = gltfMaterial.alphaCutoff,
+			.double_sided = gltfMaterial.doubleSided,
+		};
+
+		if (pbr.baseColorTexture) {
+			material.albedo_index = textureTask->textures[pbr.baseColorTexture->textureIndex]->getHandle();
+			material.albedo_uv_set = static_cast<std::uint32_t>(pbr.baseColorTexture->texCoordIndex);
+			if (auto& transform = pbr.baseColorTexture->transform; transform) {
+				material.uv_offset = glm::make_vec2(transform->uvOffset.data());
+				material.uv_scale = glm::make_vec2(transform->uvScale.data());
+				material.uv_rotation = transform->rotation;
+			}
+		}
+
 		std::lock_guard lock(materialMutex);
-		materials[i] = renderer->createMaterial(shaders::Material {
-			.albedoFactor = glm::make_vec4(pbr.baseColorFactor.data()),
-			.albedoIndex = pbr.baseColorTexture ? textureTask->textures[pbr.baseColorTexture->textureIndex]->getHandle() : 0,
-			.alphaCutoff = gltfMaterial.alphaCutoff,
-			.doubleSided = gltfMaterial.doubleSided,
-		});
+		materials[i] = renderer->createMaterial(material);
 	}
 }
 
@@ -440,13 +452,7 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		aabbExtents = primitiveMax - aabbCenter;
 	}
 
-	// Load the vertices. TODO: Directly copy into the staging buffer, instead of into a vector first.
-	std::vector<shaders::Vertex> vertices; vertices.reserve(posAccessor.count);
-	fastgltf::iterateAccessor<glm::vec3>(asset, posAccessor, [&](glm::vec3 val) {
-		auto& vtx = vertices.emplace_back();
-		vtx.position = val;
-		vtx.color = glm::u8vec4(255.f);
-	}, adapter);
+	std::vector positions(std::from_range, fastgltf::iterateAccessor<glm::fvec3>(asset, posAccessor));
 
 	assert(gltfPrimitive.indicesAccessor.has_value());
 	auto& idxAccessor = asset.accessors[gltfPrimitive.indicesAccessor.value()];
@@ -454,6 +460,10 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 	std::vector<graphics::index_t> indices(idxAccessor.count);
 	fastgltf::copyFromAccessor<graphics::index_t>(
 			asset, idxAccessor, indices.data(), adapter);
+
+	std::vector vertices(posAccessor.count, shaders::vertex_t {
+		.color = glm::u8vec4(255),
+	});
 
 	if (auto* normalAttribute = gltfPrimitive.findAttribute("NORMAL"); normalAttribute != gltfPrimitive.attributes.end()) {
 		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex], [&](glm::vec3 val, std::size_t idx) {
@@ -467,8 +477,8 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 			auto i1 = indices[idx * 3 + 1];
 			auto i2 = indices[idx * 3 + 2];
 
-			auto v1 = vertices[i1].position - vertices[i].position;
-			auto v2 = vertices[i2].position - vertices[i].position;
+			auto v1 = positions[i1] - positions[i];
+			auto v2 = positions[i2] - positions[i];
 			auto val = glm::normalize(glm::cross(v1, v2));
 
 			normals[i] += val;
@@ -496,14 +506,24 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		}
 	}
 
-	if (auto* uvAttribute = gltfPrimitive.findAttribute("TEXCOORD_0"); uvAttribute != gltfPrimitive.attributes.end()) {
-		auto& uvAccessor = asset.accessors[uvAttribute->accessorIndex];
-		fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 val, std::size_t idx) {
-			vertices[idx].uv = {
-				meshopt_quantizeHalf(val.x),
-				meshopt_quantizeHalf(val.y),
-			};
-		}, adapter);
+	std::array<std::vector<glm::fvec2>, shaders::max_uv_sets> uvs;
+
+	// Initialize the first UV set to zeroes as a fallback
+	uvs[0] = std::vector(posAccessor.count, glm::fvec2(0.f));
+
+	for (const auto& [attribute, accessor_index] : gltfPrimitive.attributes) {
+		// TODO: Also use this loop to load the other attributes, saving some iteration time?
+		if (!attribute.starts_with("TEXCOORD_")) {
+			continue;
+		}
+
+		// The spec requires indices to be just single positive decimal integers.
+		static_assert(shaders::max_uv_sets <= 9, "The following code assumes single digit UV sets only.");
+		auto idx = attribute[9] - '0';
+		assert(idx < uvs.size() && idx >= 0);
+
+		auto& accessor = asset.accessors[accessor_index];
+		uvs[idx] = std::vector(std::from_range, fastgltf::iterateAccessor<glm::fvec2>(asset, accessor));
 	}
 
 	auto* materialTask = dynamic_cast<const MaterialLoadTask*>(materialDependency.GetDependencyTask());
@@ -512,7 +532,10 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		: renderer->getDefaultMaterialIndex();
 
 	auto mesh = renderer->createSharedMesh(
-			vertices, indices, aabbCenter, aabbExtents,
+			positions, vertices,
+			transform_array(uvs, [](auto& buffer) { return std::span<const glm::fvec2>(buffer); }),
+			indices,
+			aabbCenter, aabbExtents,
 			materialIndex);
 
 	{

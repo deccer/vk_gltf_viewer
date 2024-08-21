@@ -29,18 +29,18 @@ shared vec3 clipVertices[maxVertices];
 
 void main() {
 	const uint drawId = taskPayload.baseID + taskPayload.deltaIDs[gl_WorkGroupID.x];
-	restrict const MeshletDraw draw = pushConstants.drawBuffer.draws[drawId];
+	restrict const meshlet_draw_t draw = pushConstants.drawBuffer.draws[drawId];
 
-	restrict Primitive primitive = pushConstants.primitiveBuffer.primitives[draw.primitiveIndex];
-	restrict const Meshlet meshlet = primitive.meshletBuffer.meshlets[draw.meshletIndex];
-	restrict const Material material = pushConstants.materialBuffer.materials[primitive.materialIndex];
+	restrict primitive_t primitive = pushConstants.primitiveBuffer.primitives[draw.primitive_index];
+	restrict const Meshlet meshlet = primitive.meshlet_buffer.meshlets[draw.meshlet_index];
+	restrict const material_t material = pushConstants.materialBuffer.materials[primitive.material_index];
 
 	// This defines the array size of gl_MeshVerticesEXT
 	if (gl_LocalInvocationID.x == 0) {
 		SetMeshOutputsEXT(meshlet.vertexCount, meshlet.triangleCount);
 	}
 
-	mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transformIndex];
+	mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transform_index];
 	mat4 mvp = pushConstants.cameraBuffer.camera.viewProjection * transformMatrix;
 	mat4 prevMvp = pushConstants.cameraBuffer.camera.prevViewProjection * transformMatrix; // TODO: We need the transforms from the last frame
 
@@ -55,17 +55,18 @@ void main() {
 		// This will, however, re-compute some vertices.
 		vidx = min(vidx, meshlet.vertexCount - 1);
 
-		const uint vertexIndex = primitive.vertexIndexBuffer.vertexIndices[meshlet.vertexOffset + vidx];
-		restrict const Vertex vertex = primitive.vertexBuffer.vertices[vertexIndex];
+		const uint vertexIndex = primitive.vertex_index_buffer.vertexIndices[meshlet.vertexOffset + vidx];
+		restrict const vec3 vtxPosition = primitive.position_buffer.positions[vertexIndex];
 
-		vec4 pos = mvp * vec4(vertex.position, 1.f);
+		vec4 pos = mvp * vec4(vtxPosition, 1.f);
 		gl_MeshVerticesEXT[vidx].gl_Position = pos;
 		position[vidx] = pos;
-		prevPosition[vidx] = prevMvp * vec4(vertex.position, 1.f);
+		prevPosition[vidx] = prevMvp * vec4(vtxPosition, 1.f);
 		clipVertices[vidx] = pos.xyw;
 
+		restrict const vertex_t vertex = primitive.vertex_buffer.vertices[vertexIndex];
 		color[vidx] = unpackVertexColor(vertex.color);
-		uv[vidx] = vec2(vertex.uv);
+		// uv[vidx] = vec2(vertex.uv);
 	}
 
 	const float transformDet = determinant(transformMatrix);
@@ -75,15 +76,15 @@ void main() {
 		pidx = min(pidx, meshlet.triangleCount - 1);
 
 		uvec3 indices = uvec3(
-			primitive.primitiveIndexBuffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 0],
-			primitive.primitiveIndexBuffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 1],
-			primitive.primitiveIndexBuffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 2]);
+			primitive.primitive_index_buffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 0],
+			primitive.primitive_index_buffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 1],
+			primitive.primitive_index_buffer.primitiveIndices[meshlet.triangleOffset + pidx * 3 + 2]);
 
 		gl_PrimitiveTriangleIndicesEXT[pidx] = indices;
 		drawIndex[pidx] = drawId;
-		materialIndex[pidx] = primitive.materialIndex;
+		materialIndex[pidx] = primitive.material_index;
 
-		if (!material.doubleSided) {
+		if (!material.double_sided) {
 			// The glTF spec says:
 			// If the determinant of the transform is a negative value, the winding order of the mesh triangle faces should be reversed.
 			// This supports negative scales for mirroring geometry.

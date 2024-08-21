@@ -18,31 +18,31 @@ SHADER_CONSTANT uint32_t drawIndexBits = 32 - triangleBits; // 25 bits for the d
 SHADER_CONSTANT uint32_t visbufferClearValue = ~0U;
 
 #if defined(SHADER_GLSL)
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer Materials {
-	Material materials[];
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer materials_ref {
+	material_t materials[];
 };
 
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer MeshletDraws {
-	MeshletDraw draws[];
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer meshlet_draws_ref {
+	meshlet_draw_t draws[];
 };
 
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer TransformBuffer {
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer transforms_ref {
 	fmat4 transforms[];
 };
 
-layout(buffer_reference, scalar, buffer_reference_align = 8) restrict readonly buffer Primitives {
-	Primitive primitives[];
+layout(buffer_reference, scalar, buffer_reference_align = 8) restrict readonly buffer primitives_ref {
+	primitive_t primitives[];
 };
 #endif
 
 struct VisbufferPushConstants {
-	BUFFER_REF(MeshletDraws, MeshletDraw) drawBuffer MEMBER_INIT(0);
+	BUFFER_REF(meshlet_draws_ref, meshlet_draw_t) drawBuffer MEMBER_INIT(0);
 	uint32_t meshletDrawCount MEMBER_INIT(0);
 
-	BUFFER_REF(TransformBuffer, fmat4) transformBuffer MEMBER_INIT(0);
-	BUFFER_REF(Primitives, Primitive) primitiveBuffer MEMBER_INIT(0);
+	BUFFER_REF(transforms_ref, fmat4) transformBuffer MEMBER_INIT(0);
+	BUFFER_REF(primitives_ref, primitive_t) primitiveBuffer MEMBER_INIT(0);
 	BUFFER_REF(CameraBuffer, Camera) cameraBuffer MEMBER_INIT(0);
-	BUFFER_REF(Materials, Material) materialBuffer MEMBER_INIT(0);
+	BUFFER_REF(materials_ref, material_t) materialBuffer MEMBER_INIT(0);
 
 	ResourceTableHandle depthPyramid MEMBER_INIT(invalidHandle);
 };
@@ -51,9 +51,9 @@ struct VisbufferResolvePushConstants {
 	ResourceTableHandle visbufferHandle MEMBER_INIT(invalidHandle);
 	ResourceTableHandle outputImageHandle MEMBER_INIT(invalidHandle);
 
-	BUFFER_REF(MeshletDraws, MeshletDraw) drawBuffer MEMBER_INIT(0);
-	BUFFER_REF(Primitives, Primitive) primitiveBuffer MEMBER_INIT(0);
-	BUFFER_REF(Materials, Material) materialBuffer MEMBER_INIT(0);
+	BUFFER_REF(meshlet_draws_ref, meshlet_draw_t) drawBuffer MEMBER_INIT(0);
+	BUFFER_REF(primitives_ref, primitive_t) primitiveBuffer MEMBER_INIT(0);
+	BUFFER_REF(materials_ref, material_t) materialBuffer MEMBER_INIT(0);
 };
 
 #if defined(SHADER_METAL)

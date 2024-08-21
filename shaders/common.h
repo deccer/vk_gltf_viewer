@@ -46,6 +46,7 @@ namespace shaders {
 	using packed_f16vec3 = mtl::packed_half3;
 	using packed_f16vec4 = mtl::packed_half4;
 
+	using fmat2 = mtl::float2x2;
 	using fmat3 = mtl::float3x3;
 	using fmat4 = mtl::float4x4;
 }
@@ -96,7 +97,7 @@ namespace shaders {
 	using packed_u16vec4 = u16vec4;
 }
 
-#define SHADER_CONSTANT static constexpr
+#define SHADER_CONSTANT static constexpr const
 #define SHADER_ARRAY(Type, Name, Count) std::array<Type, Count> Name
 #define BUFFER_REF(Name, Type) VkDeviceAddress
 #define SHADER_BOOL alignas(4) bool
@@ -136,6 +137,7 @@ namespace shaders {
 #define packed_f16vec3 f16vec3
 #define packed_f16vec4 f16vec4
 
+#define fmat2 mat2
 #define fmat3 mat3
 #define fmat4 mat4
 

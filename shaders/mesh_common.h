@@ -13,6 +13,10 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #endif
 
+#if defined(SHADER_CPP)
+#include <glm/gtx/vec_swizzle.hpp>
+#endif
+
 #include "resource_table.h"
 SHADER_NAMESPACE_BEGIN
 
@@ -60,25 +64,17 @@ struct Meshlet {
 	uint8_t vertexCount;
 	uint8_t triangleCount;
 
-	packed_fvec3 aabbExtents;
-	packed_fvec3 aabbCenter;
+	packed_fvec3 aabb_extents;
+	packed_fvec3 aabb_center;
 };
 
-struct Vertex {
-	packed_fvec3 position;
-#if defined(SHADER_METAL)
-	uint32_t color;
-#else
-	packed_u8vec4 color;
-#endif
-
+struct vertex_t {
 	packed_fvec3 normal;
 
-// Quantized float16_t vec2. TODO: glm has half float types, use those?
-#if defined(SHADER_CPP)
-	packed_u16vec2 uv;
+#if defined(SHADER_METAL)
+	mtl::rgba8unorm<float4> color;
 #else
-	packed_f16vec2 uv;
+	packed_u8vec4 color;
 #endif
 };
 
@@ -90,60 +86,123 @@ vec4 unpackVertexColor(in u8vec4 color) {
 vec3 unpackVertexNormal(in u8vec3 normal) {
 	return normalize(vec3(normal) / 127.f - 1.f);
 }
+#endif
 
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer VertexIndices {
+#if defined(SHADER_GLSL)
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer vertex_indices_ref {
 	uint vertexIndices[];
 };
-layout(buffer_reference, scalar, buffer_reference_align = 1) restrict readonly buffer PrimitiveIndices {
+layout(buffer_reference, scalar, buffer_reference_align = 1) restrict readonly buffer primitive_indices_ref {
 	uint8_t primitiveIndices[];
 };
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer Vertices {
-	Vertex vertices[];
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer positions_ref {
+	vec3 positions[];
 };
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer Meshlets {
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer meshlets_ref {
 	Meshlet meshlets[];
+};
+
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer vertices_ref {
+	vertex_t vertices[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer uvs_ref {
+	vec2 uvs[];
 };
 #endif
 
-struct MeshletDraw {
-	uint32_t primitiveIndex;
-	uint32_t meshletIndex;
-	uint32_t transformIndex;
+struct meshlet_draw_t {
+	uint32_t primitive_index;
+	uint32_t meshlet_index;
+	uint32_t transform_index;
 };
 
-struct Primitive {
-	BUFFER_REF(VertexIndices, uint32_t) vertexIndexBuffer MEMBER_INIT(0);
-	BUFFER_REF(PrimitiveIndices, uint8_t) primitiveIndexBuffer MEMBER_INIT(0);
-	BUFFER_REF(Vertices, Vertex) vertexBuffer MEMBER_INIT(0);
-	BUFFER_REF(Meshlets, Meshlet) meshletBuffer MEMBER_INIT(0);
+// The maximum amount of UV sets is dictated by the maximum amount of textures a material
+// can have. Whenever we add support for additional extensions that add more textures this needs
+// to be increased accordingly.
+SHADER_CONSTANT uint32_t max_uv_sets = 5;
 
-	packed_fvec3 aabbExtents;
-	packed_fvec3 aabbCenter;
+struct primitive_t {
+	BUFFER_REF(vertex_indices_ref, uint32_t) vertex_index_buffer MEMBER_INIT(0);
+	BUFFER_REF(primitive_indices_ref, uint8_t) primitive_index_buffer MEMBER_INIT(0);
+	BUFFER_REF(positions_ref, packed_fvec3) position_buffer MEMBER_INIT(0);
+	BUFFER_REF(meshlets_ref, Meshlet) meshlet_buffer MEMBER_INIT(0);
 
-	uint32_t meshletCount;
-	uint32_t materialIndex;
+	BUFFER_REF(vertices_ref, vertex_t) vertex_buffer MEMBER_INIT(0);
+	SHADER_ARRAY(BUFFER_REF(uvs_ref, fvec2), uv_buffers, max_uv_sets);
+
+	packed_fvec3 aabb_extents;
+	packed_fvec3 aabb_center;
+
+	uint32_t meshlet_count;
+	uint32_t material_index;
 };
 
-struct Material {
-	packed_fvec4 albedoFactor;
+struct material_t {
+	packed_fvec4 albedo_factor;
 
 	// Albedo texture
-	ResourceTableHandle albedoIndex;
-	packed_fvec2 uvOffset;
-	packed_fvec2 uvScale;
-	float uvRotation;
+	ResourceTableHandle albedo_index;
+	uint32_t albedo_uv_set;
+	packed_fvec2 uv_offset;
+	packed_fvec2 uv_scale MEMBER_INIT(fvec2(1.f));
+	float uv_rotation;
 
-	float alphaCutoff;
-	SHADER_BOOL doubleSided;
+	float alpha_cutoff;
+	SHADER_BOOL double_sided;
 };
 
-#if defined(SHADER_GLSL)
-vec2 transformUv(in Material material, vec2 uv) {
-	mat2 rotationMat = mat2(
-		cos(material.uvRotation), -sin(material.uvRotation),
-		sin(material.uvRotation), cos(material.uvRotation)
+#if defined(SHADER_METAL) || defined(SHADER_GLSL)
+fvec2 transformUv(material_t material, fvec2 uv) {
+	fmat2 rotationMat = fmat2(
+		cos(material.uv_rotation), -sin(material.uv_rotation),
+		sin(material.uv_rotation), cos(material.uv_rotation)
 	);
-	return rotationMat * uv * material.uvScale + material.uvOffset;
+	return rotationMat * uv * material.uv_scale + material.uv_offset;
+}
+#endif
+
+// Octahedron-normal vectors encoding for use in the GBuffer
+#if defined(SHADER_METAL)
+inline fvec2 oct_wrap(fvec2 v) {
+	return (1.0 - abs(v.yx)) * (all(v.xy >= fvec2(0.)) ? 1.0 : -1.0);
+}
+
+inline fvec2 normal_encode(fvec3 n) {
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+	n.xy = n.z >= 0.0 ? n.xy : oct_wrap(n.xy);
+	n.xy = n.xy * 0.5 + 0.5;
+	return n.xy;
+}
+
+inline fvec3 normal_decode(fvec2 f) {
+	f = f * 2.0 - 1.0;
+
+	// https://twitter.com/Stubbesaurus/status/937994790553227264
+	fvec3 n = fvec3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+	float t = saturate(-n.z);
+	n.xy += all(n.xy >= fvec2(0.)) ? -t : t;
+	return normalize(n);
+}
+#elif defined(SHADER_CPP)
+inline fvec2 oct_wrap(fvec2 v) {
+	return (1.f - abs(glm::yx(v))) * (all(glm::greaterThanEqual(glm::xy(v), fvec2(0.f))) ? 1.f : -1.f);
+}
+
+inline fvec2 normal_encode(fvec3 n) {
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+	glm::xy(n) = n.z >= 0.f ? glm::xy(n) : oct_wrap(glm::xy(n));
+	glm::xy(n) = glm::xy(n) * 0.5f + 0.5f;
+	return glm::xy(n);
+}
+
+inline fvec3 normal_decode(fvec2 f) {
+	f = f * 2.f - 1.f;
+
+	// https://twitter.com/Stubbesaurus/status/937994790553227264
+	fvec3 n = fvec3(f.x, f.y, 1.f - abs(f.x) - abs(f.y));
+	float t = glm::clamp(-n.z, 0.f, 1.f);
+	glm::xy(n) += all(glm::greaterThanEqual(glm::xy(n), fvec2(0.))) ? -t : t;
+	return normalize(n);
 }
 #endif
 

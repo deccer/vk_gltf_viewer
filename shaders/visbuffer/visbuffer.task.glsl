@@ -41,14 +41,14 @@ void main() {
 		idx = min(idx, meshletCount - 1);
 
 		// TODO: Is this a great option that we fetch the data like this in the loop?
-		restrict const MeshletDraw draw = pushConstants.drawBuffer.draws[baseId + idx];
-		const mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transformIndex];
-		restrict Primitive primitive = pushConstants.primitiveBuffer.primitives[draw.primitiveIndex];
-		restrict const Meshlet meshlet = primitive.meshletBuffer.meshlets[draw.meshletIndex];
+		restrict const meshlet_draw_t draw = pushConstants.drawBuffer.draws[baseId + idx];
+		const mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transform_index];
+		restrict primitive_t primitive = pushConstants.primitiveBuffer.primitives[draw.primitive_index];
+		restrict const Meshlet meshlet = primitive.meshlet_buffer.meshlets[draw.meshlet_index];
 
 		// Frustum culling
-		const vec3 worldAabbCenter = (transformMatrix * vec4(meshlet.aabbCenter, 1.0f)).xyz;
-		const vec3 worldAabbExtent = getWorldSpaceAabbExtent(meshlet.aabbExtents.xyz, transformMatrix);
+		const vec3 worldAabbCenter = (transformMatrix * vec4(meshlet.aabb_center, 1.0f)).xyz;
+		const vec3 worldAabbExtent = getWorldSpaceAabbExtent(meshlet.aabb_extents.xyz, transformMatrix);
 		bool visible = isAabbInFrustum(worldAabbCenter, worldAabbExtent, camera.frustum);
 
 		if (visible) {
