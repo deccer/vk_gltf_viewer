@@ -28,7 +28,7 @@ layout(push_constant, scalar) readonly uniform PushConstants {
 void main() {
 	//restrict const Material material = pushConstants.materialBuffer.materials[materialIndex];
 
-	//const vec4 sampled = texture(textures[material.albedoIndex], transformUv(material, uv));
+	//const vec4 sampled = texture(textures[material.albedoIndex], transform_uv(material, uv));
 	//const vec4 albedoColor = color * material.albedoFactor * toLinear(sampled);
 	//if (albedoColor.a < material.alphaCutoff)
 	//    discard;

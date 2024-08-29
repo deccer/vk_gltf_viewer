@@ -41,7 +41,7 @@ struct VisbufferPushConstants {
 
 	BUFFER_REF(transforms_ref, fmat4) transformBuffer MEMBER_INIT(0);
 	BUFFER_REF(primitives_ref, primitive_t) primitiveBuffer MEMBER_INIT(0);
-	BUFFER_REF(CameraBuffer, Camera) cameraBuffer MEMBER_INIT(0);
+	BUFFER_REF(camera_ref, camera_t) cameraBuffer MEMBER_INIT(0);
 	BUFFER_REF(materials_ref, material_t) materialBuffer MEMBER_INIT(0);
 
 	ResourceTableHandle depthPyramid MEMBER_INIT(invalidHandle);

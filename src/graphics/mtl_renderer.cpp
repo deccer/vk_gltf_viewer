@@ -73,7 +73,10 @@ graphics::InstanceIndex gmtl::MeshletScene::addMeshInstance(std::shared_ptr<Mesh
 
 void gmtl::MeshletScene::updateTransform(graphics::InstanceIndex instance, glm::fmat4x4 transform) {
 	ZoneScoped;
-	transforms[instance] = transform;
+	transforms[instance] = {
+		.matrix = transform,
+		.inverse_matrix = glm::inverse(transform),
+	};
 }
 
 void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
@@ -93,7 +96,7 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 
 	{
 		auto length = drawBuffer.transformBuffer ? drawBuffer.transformBuffer->length() : 0;
-		auto requiredLength = transforms.size() * sizeof(glm::fmat4x4);
+		auto requiredLength = transforms.size() * sizeof(decltype(transforms)::value_type);
 		if (requiredLength > length) {
 			drawBuffer.transformBuffer = NS::TransferPtr(
 					device->newBuffer(requiredLength, MTL::ResourceStorageModeShared));
@@ -104,7 +107,7 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 
 	{
 		auto length = drawBuffer.primitiveBuffer ? drawBuffer.primitiveBuffer->length() : 0;
-		auto requiredLength = meshes.size() * sizeof(shaders::primitive_t);
+		auto requiredLength = meshes.size() * sizeof(decltype(meshes)::value_type);
 		if (requiredLength > length) {
 			drawBuffer.primitiveBuffer = NS::TransferPtr(
 					device->newBuffer(requiredLength, MTL::ResourceStorageModeShared));
@@ -116,9 +119,10 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 	}
 }
 
-static constexpr std::array<MTL::PixelFormat, 2> gbuffer_formats {{
+static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 	MTL::PixelFormatRGBA8Unorm, // Color
-	MTL::PixelFormatRG16Unorm, // Normals
+	MTL::PixelFormatRGBA32Float, // Normals
+	MTL::PixelFormatRG16Float, // Metallic & Roughness
 }};
 
 void gmtl::visbuffer_pass::init_pass(MtlRenderer& renderer) {
@@ -174,13 +178,30 @@ void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
 	auto device = renderer.device;
 
 	auto size = renderer.layer->drawableSize();
+
+	auto* albedo_desc = MTL::TextureDescriptor::texture2DDescriptor(
+		MTL::PixelFormatRGBA8Unorm, size.width, size.height, false);
+	albedo_desc->setUsage(MTL::TextureUsageRenderTarget);
+	albedo_desc->setStorageMode(MTL::StorageModePrivate);
+
+	albedo_texture = NS::TransferPtr(device->newTexture(albedo_desc));
+	albedo_texture->setLabel(MTLSTR("Albedo"));
+
 	auto* normal_desc = MTL::TextureDescriptor::texture2DDescriptor(
-		MTL::PixelFormatRG16Unorm, size.width, size.height, false);
+		MTL::PixelFormatRGBA32Float, size.width, size.height, false);
 	normal_desc->setUsage(MTL::TextureUsageRenderTarget);
 	normal_desc->setStorageMode(MTL::StorageModePrivate);
 
 	normal_texture = NS::TransferPtr(device->newTexture(normal_desc));
 	normal_texture->setLabel(MTLSTR("Normals"));
+
+	auto* mr_desc = MTL::TextureDescriptor::texture2DDescriptor(
+		MTL::PixelFormatRG16Float, size.width, size.height, false);
+	mr_desc->setUsage(MTL::TextureUsageRenderTarget);
+	mr_desc->setStorageMode(MTL::StorageModePrivate);
+
+	metallic_roughness_texture = NS::TransferPtr(device->newTexture(mr_desc));
+	metallic_roughness_texture->setLabel(MTLSTR("Metallic roughness"));
 
 	auto* depthDesc = MTL::TextureDescriptor::texture2DDescriptor(
 			MTL::PixelFormatDepth32Float, size.width, size.height, false);
@@ -191,6 +212,32 @@ void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
 	depth_texture->setLabel(MTLSTR("Depth texture"));
 }
 
+void gmtl::shading_pass::init_pass(MtlRenderer& renderer) {
+	auto& device = renderer.device;
+
+	auto* gbuffer_tile_function = renderer.globalLibrary->newFunction(MTLSTR("gbuffer_shading"));
+	auto* gbuffer_tile_desc = MTL::TileRenderPipelineDescriptor::alloc()->init()->autorelease();
+	gbuffer_tile_desc->setTileFunction(gbuffer_tile_function);
+
+	gbuffer_tile_desc->colorAttachments()->object(0)->setPixelFormat(MTL::PixelFormatRGBA16Float);
+	for (std::size_t i = 1; auto& format : gbuffer_formats)
+		gbuffer_tile_desc->colorAttachments()->object(i++)->setPixelFormat(format);
+
+	NS::Error* error = nullptr;
+	shading_pass_pipeline = NS::TransferPtr(
+		device->newRenderPipelineState(gbuffer_tile_desc, MTL::PipelineOptionNone, nullptr, &error));
+	if (!shading_pass_pipeline) {
+		fmt::print("{}", error->localizedDescription()->utf8String());
+	}
+
+	update_resolution(renderer);
+}
+
+void gmtl::shading_pass::update_resolution(MtlRenderer& renderer) {
+	ZoneScoped;
+	auto& device = renderer.device;
+}
+
 gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	ZoneScoped;
 	// pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
@@ -199,7 +246,7 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 
 	layer = createMetalLayer(window);
 	layer->setDevice(device.get());
-	layer->setPixelFormat(MTL::PixelFormatRGBA8Unorm);
+	layer->setPixelFormat(MTL::PixelFormatRGBA16Float);
 
 	commandQueue = NS::TransferPtr(device->newCommandQueue());
 
@@ -220,7 +267,7 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 
 	cameraBuffers.resize(frameOverlap);
 	for (std::size_t i = 0; auto& camera : cameraBuffers) {
-		camera = NS::TransferPtr(device->newBuffer(sizeof(shaders::Camera), MTL::StorageModeShared));
+		camera = NS::TransferPtr(device->newBuffer(sizeof(shaders::camera_t), MTL::StorageModeShared));
 		auto str = fmt::format("Camera buffer {}", i++);
 		camera->setLabel(NS::String::string(str.c_str(), NS::UTF8StringEncoding));
 	}
@@ -228,11 +275,16 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	// Create a default material with glTF defaults.
 	materials.emplace_back(shaders::material_t {
 		.albedo_factor = glm::fvec4(1.f),
-		.albedo_index = shaders::invalidHandle,
-		.albedo_uv_set = 0,
-		.uv_offset = glm::fvec2(0.f),
-		.uv_scale = glm::fvec2(1.f),
-		.uv_rotation = 0.f,
+		.albedo = {
+			.index = shaders::invalidHandle,
+			.uv_set = 0,
+		},
+		.metallic_factor = 1.f,
+		.roughness_factor = 1.f,
+		.metallic_roughness = {
+			.index = shaders::invalidHandle,
+			.uv_set = 0,
+		},
 		.alpha_cutoff = 0.5f,
 		.double_sided = false,
 	});
@@ -246,6 +298,7 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	defaultSampler = std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
 
 	visbuffer_pass.init_pass(*this);
+	shading_pass.init_pass(*this);
 }
 
 gmtl::MtlRenderer::~MtlRenderer() noexcept = default;
@@ -477,6 +530,7 @@ void gmtl::MtlRenderer::updateResolution(glm::u32vec2 resolution) {
 	layer->setDrawableSize(CGSizeMake(resolution.x, resolution.y));
 
 	visbuffer_pass.update_resolution(*this);
+	shading_pass.update_resolution(*this);
 }
 
 auto gmtl::MtlRenderer::getRenderResolution() const noexcept -> glm::u32vec2 {
@@ -501,7 +555,7 @@ void gmtl::MtlRenderer::prepareFrame(std::size_t frameIndex) {
 }
 
 bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
-							 const shaders::Camera& camera, float dt) {
+							 const shaders::camera_t& camera, float dt) {
 	ZoneScoped;
 	auto* pool = NS::AutoreleasePool::alloc()->init();
 
@@ -510,7 +564,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 	auto* drawable = layer->nextDrawable();
 
 	scene.updateDrawBuffers(frameIndex);
-	*static_cast<shaders::Camera*>(cameraBuffers[frameIndex]->contents()) = camera;
+	*static_cast<shaders::camera_t*>(cameraBuffers[frameIndex]->contents()) = camera;
 
 	auto* bufferDesc = MTL::CommandBufferDescriptor::alloc()->init()->autorelease();
 	bufferDesc->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
@@ -524,7 +578,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		auto* albedo_attachment = visbuffer_pass_descriptor->colorAttachments()->object(0);
 		albedo_attachment->setLoadAction(MTL::LoadActionClear);
 		albedo_attachment->setStoreAction(MTL::StoreActionStore);
-		albedo_attachment->setTexture(drawable->texture());
+		albedo_attachment->setTexture(visbuffer_pass.albedo_texture.get());
 		albedo_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 1.));
 
 		auto* normal_attachment = visbuffer_pass_descriptor->colorAttachments()->object(1);
@@ -532,6 +586,12 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		normal_attachment->setStoreAction(MTL::StoreActionStore);
 		normal_attachment->setTexture(visbuffer_pass.normal_texture.get());
 		normal_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
+
+		auto* mr_attachment = visbuffer_pass_descriptor->colorAttachments()->object(2);
+		mr_attachment->setLoadAction(MTL::LoadActionClear);
+		mr_attachment->setStoreAction(MTL::StoreActionStore);
+		mr_attachment->setTexture(visbuffer_pass.metallic_roughness_texture.get());
+		mr_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
 
 		auto* depthAttachment = visbuffer_pass_descriptor->depthAttachment();
 		depthAttachment->setClearDepth(0.);
@@ -587,6 +647,48 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		encoder->setTileBuffer(materialBuffers[frameIndex].get(), 0, 4);
 		encoder->setTileBuffer(resourceTable->sampledImageBuffer, 0, 5);
 		resourceTable->encodeUsage(encoder);
+
+		encoder->dispatchThreadsPerTile(
+			MTL::Size::Make(encoder->tileHeight(), encoder->tileWidth(), 1));
+
+		encoder->endEncoding();
+	}
+
+	if (drawCount > 0) {
+		auto* shading_pass_descriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
+		shading_pass_descriptor->setImageblockSampleLength(visbuffer_pass.gbuffer_tile_pipeline->imageblockSampleLength());
+
+		auto* color_attachment = shading_pass_descriptor->colorAttachments()->object(0);
+		color_attachment->setLoadAction(MTL::LoadActionClear);
+		color_attachment->setStoreAction(MTL::StoreActionStore);
+		color_attachment->setTexture(drawable->texture());
+		color_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 1.));
+
+		auto* albedo_attachment = shading_pass_descriptor->colorAttachments()->object(1);
+		albedo_attachment->setLoadAction(MTL::LoadActionLoad);
+		albedo_attachment->setStoreAction(MTL::StoreActionDontCare);
+		albedo_attachment->setTexture(visbuffer_pass.albedo_texture.get());
+		albedo_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 1.));
+
+		auto* normal_attachment = shading_pass_descriptor->colorAttachments()->object(2);
+		normal_attachment->setLoadAction(MTL::LoadActionLoad);
+		normal_attachment->setStoreAction(MTL::StoreActionDontCare);
+		normal_attachment->setTexture(visbuffer_pass.normal_texture.get());
+		normal_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
+
+		auto* mr_attachment = shading_pass_descriptor->colorAttachments()->object(3);
+		mr_attachment->setLoadAction(MTL::LoadActionLoad);
+		mr_attachment->setStoreAction(MTL::StoreActionDontCare);
+		mr_attachment->setTexture(visbuffer_pass.metallic_roughness_texture.get());
+		mr_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
+
+		auto* encoder = buffer->renderCommandEncoder(shading_pass_descriptor);
+		encoder->setLabel(MTLSTR("Shading"));
+
+		encoder->setRenderPipelineState(shading_pass.shading_pass_pipeline.get());
+
+		encoder->setTileBuffer(cameraBuffers[frameIndex].get(), 0, 0);
+		encoder->setTileTexture(visbuffer_pass.depth_texture.get(), 0);
 
 		encoder->dispatchThreadsPerTile(
 			MTL::Size::Make(encoder->tileHeight(), encoder->tileWidth(), 1));

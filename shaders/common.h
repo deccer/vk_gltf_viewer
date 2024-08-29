@@ -39,6 +39,13 @@ namespace shaders {
 	using packed_u16vec3 = mtl::packed_ushort3;
 	using packed_u16vec4 = mtl::packed_ushort4;
 
+	using u32vec2 = mtl::uint2;
+	using u32vec3 = mtl::uint3;
+	using u32vec4 = mtl::uint4;
+	using packed_u32vec2 = mtl::packed_uint2;
+	using packed_u32vec3 = mtl::packed_uint3;
+	using packed_u32vec4 = mtl::packed_uint4;
+
 	using f16vec2 = mtl::half2;
 	using f16vec3 = mtl::half3;
 	using f16vec4 = mtl::half4;
@@ -95,6 +102,10 @@ namespace shaders {
 	using packed_u16vec2 = u16vec2;
 	using packed_u16vec3 = u16vec3;
 	using packed_u16vec4 = u16vec4;
+
+	using packed_u32vec2 = u32vec2;
+	using packed_u32vec3 = u32vec3;
+	using packed_u32vec4 = u32vec4;
 }
 
 #define SHADER_CONSTANT static constexpr const

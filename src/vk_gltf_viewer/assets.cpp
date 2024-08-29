@@ -374,17 +374,31 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 
 		shaders::material_t material {
 			.albedo_factor = glm::make_vec4(pbr.baseColorFactor.data()),
+			.metallic_factor = pbr.metallicFactor,
+			.roughness_factor = pbr.roughnessFactor,
 			.alpha_cutoff = gltfMaterial.alphaCutoff,
 			.double_sided = gltfMaterial.doubleSided,
 		};
 
 		if (pbr.baseColorTexture) {
-			material.albedo_index = textureTask->textures[pbr.baseColorTexture->textureIndex]->getHandle();
-			material.albedo_uv_set = static_cast<std::uint32_t>(pbr.baseColorTexture->texCoordIndex);
+			auto& tex = material.albedo;
+			tex.index = textureTask->textures[pbr.baseColorTexture->textureIndex]->getHandle();
+			tex.uv_set = static_cast<std::uint32_t>(pbr.baseColorTexture->texCoordIndex);
 			if (auto& transform = pbr.baseColorTexture->transform; transform) {
-				material.uv_offset = glm::make_vec2(transform->uvOffset.data());
-				material.uv_scale = glm::make_vec2(transform->uvScale.data());
-				material.uv_rotation = transform->rotation;
+				tex.uv_offset = glm::make_vec2(transform->uvOffset.data());
+				tex.uv_scale = glm::make_vec2(transform->uvScale.data());
+				tex.uv_rotation = transform->rotation;
+			}
+		}
+
+		if (pbr.metallicRoughnessTexture) {
+			auto& tex = material.metallic_roughness;
+			tex.index = textureTask->textures[pbr.metallicRoughnessTexture->textureIndex]->getHandle();
+			tex.uv_set = static_cast<std::uint32_t>(pbr.metallicRoughnessTexture->texCoordIndex);
+			if (auto& transform = pbr.metallicRoughnessTexture->transform; transform) {
+				tex.uv_offset = glm::make_vec2(transform->uvOffset.data());
+				tex.uv_scale = glm::make_vec2(transform->uvScale.data());
+				tex.uv_rotation = transform->rotation;
 			}
 		}
 
@@ -486,7 +500,7 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 			normals[i2] += val;
 		}
 		for (std::size_t i = 0; i < normals.size(); ++i) {
-			vertices[i].normal = normals[i];
+			vertices[i].normal = glm::normalize(normals[i]);
 		}
 	}
 

@@ -89,7 +89,7 @@ public:
 	NS::SharedPtr<MTL::Device> device;
 
 	std::vector<MeshletSceneMesh> meshes;
-	std::vector<glm::fmat4x4> transforms;
+	std::vector<shaders::primitive_transform_t> transforms;
 	std::vector<shaders::meshlet_draw_t> meshletDraws;
 
 	std::vector<MeshletDrawBuffers> drawBuffers;
@@ -112,8 +112,17 @@ struct visbuffer_pass {
 	NS::SharedPtr<MTL::RenderPipelineState> gbuffer_tile_pipeline;
 	NS::SharedPtr<MTL::DepthStencilState> depth_state;
 
+	NS::SharedPtr<MTL::Texture> albedo_texture;
 	NS::SharedPtr<MTL::Texture> normal_texture;
+	NS::SharedPtr<MTL::Texture> metallic_roughness_texture;
 	NS::SharedPtr<MTL::Texture> depth_texture;
+
+	void init_pass(MtlRenderer& renderer);
+	void update_resolution(MtlRenderer& renderer);
+};
+
+struct shading_pass {
+	NS::SharedPtr<MTL::RenderPipelineState> shading_pass_pipeline;
 
 	void init_pass(MtlRenderer& renderer);
 	void update_resolution(MtlRenderer& renderer);
@@ -122,6 +131,7 @@ struct visbuffer_pass {
 class MtlRenderer : public graphics::Renderer {
 	friend std::shared_ptr<Renderer> graphics::Renderer::createRenderer(GLFWwindow* window);
 	friend visbuffer_pass;
+	friend shading_pass;
 
 	/** This comes first so that it wraps around the entire lifetime of the renderer object */
 	// NS::SharedPtr<NS::AutoreleasePool> pool;
@@ -147,6 +157,7 @@ class MtlRenderer : public graphics::Renderer {
 	std::shared_ptr<MtlSampler> defaultSampler;
 
 	visbuffer_pass visbuffer_pass;
+	shading_pass shading_pass;
 
 public:
 	explicit MtlRenderer(GLFWwindow* window);
@@ -183,6 +194,6 @@ public:
 
 	void prepareFrame(std::size_t frameIndex) override;
 	bool draw(std::size_t frameIndex, Scene& world,
-			  const shaders::Camera& camera, float dt) override;
+			  const shaders::camera_t& camera, float dt) override;
 };
 }

@@ -30,9 +30,9 @@ struct object_payload {
 		object_data object_payload& payload [[payload]],
 		mtl::mesh_grid_properties outGrid,
 		constant const ulong& meshlet_draw_count [[buffer(0)]],
-		device const shaders::Camera& camera [[buffer(1)]],
+		device const shaders::camera_t& camera [[buffer(1)]],
 		device const shaders::meshlet_draw_t* draws [[buffer(2)]],
-		device const mtl::float4x4* transforms [[buffer(3)]],
+		device const shaders::primitive_transform_t* transforms [[buffer(3)]],
 		device const shaders::primitive_t* primitives [[buffer(4)]],
 		uint gid [[threadgroup_position_in_grid]],
 		uint thread_index [[thread_position_in_threadgroup]],
@@ -51,7 +51,7 @@ struct object_payload {
 		auto idx = mtl::min(tidx, meshlet_count - 1U);
 
 		device const auto& draw = draws[base_id + idx];
-		device const auto& transform_matrix = transforms[draw.transform_index];
+		device const auto& transform = transforms[draw.transform_index];
 		device const auto& primitive = primitives[draw.primitive_index];
 		device const auto& meshlet = primitive.meshlet_buffer[draw.meshlet_index];
 
@@ -60,8 +60,8 @@ struct object_payload {
 		bool visible = tidx == idx;
 
 		// Frustum culling
-		const auto world_aabb_center = (transform_matrix * float4(meshlet.aabb_center, 1.0f)).xyz;
-		const auto world_aabb_extent = shaders::getWorldSpaceAabbExtent(meshlet.aabb_extents.xyz, transform_matrix);
+		const auto world_aabb_center = (transform.matrix * float4(meshlet.aabb_center, 1.0f)).xyz;
+		const auto world_aabb_extent = shaders::getWorldSpaceAabbExtent(meshlet.aabb_extents.xyz, transform.matrix);
 		visible = visible && shaders::isAabbInFrustum(world_aabb_center, world_aabb_extent, camera.frustum);
 
 		if (visible) {
@@ -85,9 +85,9 @@ struct object_payload {
 		meshlet_t meshlet_out,
 		object_data const object_payload& payload [[payload]],
 		device const shaders::meshlet_draw_t* draws [[buffer(0)]],
-		device const mtl::float4x4* transforms [[buffer(1)]],
+		device const shaders::primitive_transform_t* transforms [[buffer(1)]],
 		device const shaders::primitive_t* primitives [[buffer(2)]],
-		device const shaders::Camera& camera [[buffer(3)]],
+		device const shaders::camera_t& camera [[buffer(3)]],
 		device const shaders::material_t* materials [[buffer(4)]],
 		uint payload_index [[threadgroup_position_in_grid]],
 		uint tid [[thread_position_in_threadgroup]],
@@ -104,8 +104,8 @@ struct object_payload {
 		meshlet_out.set_primitive_count(meshlet.triangleCount);
 	}
 
-	device auto& transform_matrix = transforms[draw.transform_index];
-	auto mvp = camera.viewProjection * transform_matrix;
+	device auto& transform = transforms[draw.transform_index];
+	auto mvp = camera.viewProjection * transform.matrix;
 
 	threadgroup mtl::array<float3, shaders::maxVertices> clip_vertices;
 
@@ -126,7 +126,7 @@ struct object_payload {
 
 	threadgroup_barrier(mtl::mem_flags::mem_threadgroup);
 
-	const auto transform_det = mtl::determinant(transform_matrix);
+	const auto transform_det = mtl::determinant(transform.matrix);
 	const auto primitive_loops = (meshlet.triangleCount + threadgroup_size - 1) / threadgroup_size;
 	for (uint i = 0; i < primitive_loops; ++i) {
 		auto pidx = tid + i * threadgroup_size;
@@ -195,7 +195,8 @@ struct rgb16unorm {
 /// and generate the various GBuffer textures.
 struct visbuffer_tile_data {
 	mtl::rgba8unorm<float4> color [[raster_order_group(0)]];
-	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
+	packed_float4 normal [[raster_order_group(0)]];
+	packed_half2 metallic_roughness [[raster_order_group(0)]];
 	uint visbuffer [[raster_order_group(0)]];
 
 	// Since barycentrics will usually only be in the [0, 1] range except when MSAA is used, we can
@@ -210,7 +211,7 @@ struct visbuffer_frag_out {
 
 /// We assume here that accessing the barycentrics is free, since they needed to be calculated
 /// anyway for generating the exact fragment position (I think).
-[[fragment]] visbuffer_frag_out visbuffer_frag(
+[[fragment, early_fragment_tests]] visbuffer_frag_out visbuffer_frag(
 		fragment_in in [[stage_in]],
 		float3 barycentrics [[barycentric_coord]]) {
 	return {
@@ -310,14 +311,24 @@ interpolated_value interpolate_with_gradient(float3 barycentrics, mtl::gradient3
 	return interpolated_value(float2(i0.x, i1.x), mtl::gradient2d(float2(i0.y, i1.y), float2(i0.z, i1.z)));
 }
 
+/// This transposes and downcasts the given matrix at once.
+mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
+	// Each vector we pass in is a single column.
+	return mtl::float3x3(
+		mtl::float3(matrix[0][0], matrix[1][0], matrix[2][0]),
+		mtl::float3(matrix[0][1], matrix[1][1], matrix[2][1]),
+		mtl::float3(matrix[0][2], matrix[1][2], matrix[2][2])
+	);
+}
+
 /// This kernel/tile shader uses the visbuffer data and barycentrics from the previous fragment
 /// shader to generate a GBuffer.
 [[kernel]] void gbuffer_generation(
 		mtl::imageblock<visbuffer_tile_data> tile_data [[alias_implicit_imageblock]],
 		device const shaders::meshlet_draw_t* draws [[buffer(0)]],
-		device const mtl::float4x4* transforms [[buffer(1)]],
+		device const shaders::primitive_transform_t* transforms [[buffer(1)]],
 		device const shaders::primitive_t* primitives [[buffer(2)]],
-		device const shaders::Camera& camera [[buffer(3)]],
+		device const shaders::camera_t& camera [[buffer(3)]],
 		device const shaders::material_t* materials [[buffer(4)]],
 		const shaders::ResourceTable resourceTable [[buffer(5)]],
 		ushort2 local_tid [[thread_position_in_threadgroup]],
@@ -330,7 +341,7 @@ interpolated_value interpolate_with_gradient(float3 barycentrics, mtl::gradient3
 		return;
 
 	device const auto& draw = draws[visbuffer.draw_index];
-	device const auto& transform_matrix = transforms[draw.transform_index];
+	device const auto& transform = transforms[draw.transform_index];
 	device const auto& primitive = primitives[draw.primitive_index];
 	device const auto& material = materials[primitive.material_index];
 
@@ -341,7 +352,7 @@ interpolated_value interpolate_with_gradient(float3 barycentrics, mtl::gradient3
 	device const auto& pos1 = primitive.position_buffer[indices.y];
 	device const auto& pos2 = primitive.position_buffer[indices.z];
 
-	const auto mvp = camera.viewProjection * transform_matrix;
+	const auto mvp = camera.viewProjection * transform.matrix;
 	float2 size(grid_size.x, grid_size.y); // TODO: Is this actually correct?
 	float2 pixel = (float2(tid) / size) * 2.f - 1.f;
 	auto gradient = calculate_gradient(
@@ -354,19 +365,36 @@ interpolated_value interpolate_with_gradient(float3 barycentrics, mtl::gradient3
 	device const auto& vtx1 = primitive.vertex_buffer[indices.y];
 	device const auto& vtx2 = primitive.vertex_buffer[indices.z];
 
-	device auto& albedo_tex = resourceTable[material.albedo_index];
-
 	const auto color = interpolate(float3(data->barycentrics),
 		float4(vtx0.color), float4(vtx1.color), float4(vtx2.color));
+	data->color = color * float4(material.albedo_factor);
 
-    device auto* albedo_uv_buffer = primitive.uv_buffers[material.albedo_uv_set];
-	const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient,
-		albedo_uv_buffer[indices.x], albedo_uv_buffer[indices.y], albedo_uv_buffer[indices.z]);
+	if (material.albedo.index != shaders::invalidHandle) {
+		device auto& albedo_tex = resourceTable[material.albedo.index];
 
-	const auto sampled = albedo_tex.tex.sample(
-		albedo_tex.sampler, transformUv(material, uv.value), uv.grad);
-	data->color = color * float4(material.albedo_factor) * sampled;
+		device auto* albedo_uv_buffer = primitive.uv_buffers[material.albedo.uv_set];
+		const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient,
+			albedo_uv_buffer[indices.x], albedo_uv_buffer[indices.y], albedo_uv_buffer[indices.z]);
 
-	data->normal = shaders::normal_encode(interpolate(float3(data->barycentrics),
-		float3(vtx0.normal), float3(vtx1.normal), float3(vtx2.normal)));
+		// Metal's pixel types don't support *= for some reason...
+		data->color = data->color * albedo_tex.tex.sample(
+			albedo_tex.sampler, transform_uv(material.albedo, uv.value), uv.grad);
+	}
+
+	// Sample metallic roughness
+	data->metallic_roughness = half2(material.roughness_factor, material.metallic_factor);
+	if (material.metallic_roughness.index != shaders::invalidHandle) {
+		device auto& mr_tex = resourceTable[material.metallic_roughness.index];
+		device auto* mr_uv_buffer = primitive.uv_buffers[material.metallic_roughness.uv_set];
+		const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient,
+			mr_uv_buffer[indices.x], mr_uv_buffer[indices.y], mr_uv_buffer[indices.z]);
+
+		// Its green channel contains roughness values and its blue channel contains metalness values.
+		data->metallic_roughness *= half2(mr_tex.tex.sample(
+			mr_tex.sampler, transform_uv(material.metallic_roughness, uv.value), uv.grad).gb);
+	}
+
+	auto normal = as_transposed_3x3(transform.inverse_matrix) * interpolate(float3(data->barycentrics),
+		float3(vtx0.normal), float3(vtx1.normal), float3(vtx2.normal));
+	data->normal = float4(mtl::normalize(normal), 1.f);
 }

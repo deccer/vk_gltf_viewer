@@ -161,6 +161,7 @@ void Camera::updateCamera(GLFWwindow* window, double deltaTime, glm::u32vec2 fra
 	prevOcclusionViewProjection = occlusionViewProjection;
 
 	viewProjection = reverseDepth(projectionMatrix) * view;
+	invViewProjection = inverse(viewProjection);
 
 	if (!freezeCullingMatrix)
 		occlusionViewProjection = viewProjection;

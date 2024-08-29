@@ -100,6 +100,6 @@ namespace graphics {
 
 		virtual void prepareFrame(std::size_t frameIndex) = 0;
 		virtual bool draw(std::size_t frameIndex, Scene& scene,
-						  const shaders::Camera& camera, float dt) = 0;
+						  const shaders::camera_t& camera, float dt) = 0;
 	};
 }

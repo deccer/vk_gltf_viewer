@@ -116,6 +116,6 @@ public:
 	void updateResolution(glm::u32vec2 resolution) override;
 
 	void prepareFrame(std::size_t frameIndex) override;
-	bool draw(std::size_t frameIndex, Scene& world, const shaders::Camera& camera, float dt) override;
+	bool draw(std::size_t frameIndex, Scene& world, const shaders::camera_t& camera, float dt) override;
 };
 } // namespace graphics::vulkan

@@ -28,7 +28,7 @@ void main() {
 	uint meshletCount = min(maxMeshlets, pushConstants.meshletDrawCount - (gl_WorkGroupID.x * maxMeshlets));
 	uint baseId = taskPayload.baseID = gl_WorkGroupID.x * maxMeshlets;
 
-	restrict Camera camera = pushConstants.cameraBuffer.camera;
+	restrict camera_t camera = pushConstants.cameraBuffer.camera;
 
 	ivec2 pyramidSize = textureSize(sampled_textures_heap[pushConstants.depthPyramid], 0);
 

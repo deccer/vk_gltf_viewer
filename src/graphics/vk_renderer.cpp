@@ -86,7 +86,7 @@ void gvk::VkRenderer::prepareFrame(std::size_t frameIndex) {
 }
 
 bool gvk::VkRenderer::draw(std::size_t frameIndex, graphics::Scene& gscene,
-						   const shaders::Camera& camera, float dt) {
+						   const shaders::camera_t& camera, float dt) {
 	ZoneScoped;
 	auto& scene = dynamic_cast<VkScene&>(gscene);
 

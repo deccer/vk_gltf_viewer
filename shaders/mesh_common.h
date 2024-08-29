@@ -22,18 +22,21 @@ SHADER_NAMESPACE_BEGIN
 
 SHADER_CONSTANT uint32_t shadowMapCount = 4;
 
-struct Camera {
+struct camera_t {
 	ALIGN_AS(16) fmat4 prevViewProjection;
 	ALIGN_AS(16) fmat4 prevOcclusionViewProjection;
 
 	ALIGN_AS(16) fmat4 viewProjection;
+	ALIGN_AS(16) fmat4 invViewProjection;
 	ALIGN_AS(16) fmat4 occlusionViewProjection;
 	SHADER_ARRAY(packed_fvec4, frustum, 6);
+
+	packed_fvec3 position;
 };
 
 #if defined(SHADER_GLSL)
-layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer CameraBuffer {
-	Camera camera;
+layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer camera_ref {
+	camera_t camera;
 };
 #endif
 
@@ -137,27 +140,39 @@ struct primitive_t {
 	uint32_t material_index;
 };
 
+struct primitive_transform_t {
+	ALIGN_AS(16) fmat4 matrix;
+	ALIGN_AS(16) fmat4 inverse_matrix;
+};
+
+struct material_texture_t {
+	ResourceTableHandle index MEMBER_INIT(shaders::invalidHandle);
+	uint32_t uv_set MEMBER_INIT(0);
+	packed_fvec2 uv_offset MEMBER_INIT(fvec2(0.f));
+	packed_fvec2 uv_scale MEMBER_INIT(fvec2(1.f));
+	float uv_rotation MEMBER_INIT(0.f);
+};
+
 struct material_t {
 	packed_fvec4 albedo_factor;
+	material_texture_t albedo;
 
-	// Albedo texture
-	ResourceTableHandle albedo_index;
-	uint32_t albedo_uv_set;
-	packed_fvec2 uv_offset;
-	packed_fvec2 uv_scale MEMBER_INIT(fvec2(1.f));
-	float uv_rotation;
+	float metallic_factor;
+	float roughness_factor;
+	material_texture_t metallic_roughness;
 
 	float alpha_cutoff;
 	SHADER_BOOL double_sided;
+	float ior;
 };
 
 #if defined(SHADER_METAL) || defined(SHADER_GLSL)
-fvec2 transformUv(material_t material, fvec2 uv) {
-	fmat2 rotationMat = fmat2(
-		cos(material.uv_rotation), -sin(material.uv_rotation),
-		sin(material.uv_rotation), cos(material.uv_rotation)
+FUNCTION_INLINE fvec2 transform_uv(material_texture_t texture, fvec2 uv) {
+	fmat2 rotation_mat = fmat2(
+		cos(texture.uv_rotation), -sin(texture.uv_rotation),
+		sin(texture.uv_rotation), cos(texture.uv_rotation)
 	);
-	return rotationMat * uv * material.uv_scale + material.uv_offset;
+	return rotation_mat * uv * texture.uv_scale + texture.uv_offset;
 }
 #endif
 
