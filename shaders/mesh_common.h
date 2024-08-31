@@ -153,6 +153,16 @@ struct material_texture_t {
 	float uv_rotation MEMBER_INIT(0.f);
 };
 
+#if !defined(SHADER_GLSL)
+enum alpha_mode_e : uint8_t {
+	opaque,
+	mask,
+	blend
+};
+#else
+#define alpha_mode_e uint8_t
+#endif
+
 struct material_t {
 	packed_fvec4 albedo_factor;
 	material_texture_t albedo;
@@ -161,6 +171,7 @@ struct material_t {
 	float roughness_factor;
 	material_texture_t metallic_roughness;
 
+	alpha_mode_e alpha_mode;
 	float alpha_cutoff;
 	SHADER_BOOL double_sided;
 	float ior;

@@ -617,6 +617,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 				if (uv_buffer)
 					encoder->useResource(uv_buffer.get(), MTL::ResourceUsageRead);
 		}
+		resourceTable->encodeUsage(encoder);
 
 		encoder->setObjectBytes(&drawCount, sizeof drawCount, 0);
 		encoder->setObjectBuffer(cameraBuffers[frameIndex].get(), 0, 1);
@@ -629,6 +630,9 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		encoder->setMeshBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
 		encoder->setMeshBuffer(cameraBuffers[frameIndex].get(), 0, 3);
 		encoder->setMeshBuffer(materialBuffers[frameIndex].get(), 0, 4);
+
+		encoder->setFragmentBuffer(materialBuffers[frameIndex].get(), 0, 0);
+		encoder->setFragmentBuffer(resourceTable->sampledImageBuffer, 0, 1);
 
 		// We cull manually per primitive in the mesh shader
 		encoder->setCullMode(MTL::CullModeNone);
@@ -646,7 +650,6 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		encoder->setTileBuffer(cameraBuffers[frameIndex].get(), 0, 3);
 		encoder->setTileBuffer(materialBuffers[frameIndex].get(), 0, 4);
 		encoder->setTileBuffer(resourceTable->sampledImageBuffer, 0, 5);
-		resourceTable->encodeUsage(encoder);
 
 		encoder->dispatchThreadsPerTile(
 			MTL::Size::Make(encoder->tileHeight(), encoder->tileWidth(), 1));

@@ -376,6 +376,15 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 			.albedo_factor = glm::make_vec4(pbr.baseColorFactor.data()),
 			.metallic_factor = pbr.metallicFactor,
 			.roughness_factor = pbr.roughnessFactor,
+			.alpha_mode = [&]() {
+				switch (gltfMaterial.alphaMode) {
+					using enum fastgltf::AlphaMode;
+					case Opaque: return shaders::alpha_mode_e::opaque;
+					case Mask: return shaders::alpha_mode_e::mask;
+					case Blend: return shaders::alpha_mode_e::blend;
+					default: std::unreachable();
+				}
+			}(),
 			.alpha_cutoff = gltfMaterial.alphaCutoff,
 			.double_sided = gltfMaterial.doubleSided,
 		};

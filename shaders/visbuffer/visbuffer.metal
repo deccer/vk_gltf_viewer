@@ -8,10 +8,13 @@ namespace mtl = metal;
 
 struct meshlet_vertex {
 	float4 position [[position]];
+	float4 color;
+	float2 uv;
 };
 
 struct meshlet_primitive {
 	uint draw_id;
+	uint material_id;
 	uint id [[primitive_id]];
 	bool culled [[primitive_culled]];
 };
@@ -115,12 +118,23 @@ struct object_payload {
 		vidx = mtl::min(vidx, meshlet.vertexCount - 1U);
 
 		const auto vtx_idx = primitive.vertex_index_buffer[meshlet.vertexOffset + vidx];
-		device const auto& vtx = primitive.position_buffer[vtx_idx];
+		device const auto& vtx_pos = primitive.position_buffer[vtx_idx];
 
-		auto pos = mvp * float4(vtx, 1.f);
+		// If the material's alpha mode is not opaque, meaning that we need to check for alpha values,
+		// we'll read and interpolate the vertex color and UV values.
+		float4 color = float4(0.0f);
+		float2 uv = float2(0.0f);
+		if (material.alpha_mode != shaders::alpha_mode_e::opaque) {
+			color = primitive.vertex_buffer[vtx_idx].color;
+			uv = primitive.uv_buffers[material.albedo.uv_set][vtx_idx];
+		}
+
+		auto pos = mvp * float4(vtx_pos, 1.f);
 		clip_vertices[vidx] = pos.xyw;
 		meshlet_out.set_vertex(vidx, meshlet_vertex {
 			.position = pos,
+			.color = color,
+			.uv = uv,
 		});
 	}
 
@@ -153,12 +167,14 @@ struct object_payload {
 
 			meshlet_out.set_primitive(pidx, meshlet_primitive {
 				.draw_id = draw_id,
+				.material_id = primitive.material_index,
 				.id = pidx,
 				.culled = culled
 			});
 		} else {
 			meshlet_out.set_primitive(pidx, meshlet_primitive {
 				.draw_id = draw_id,
+				.material_id = primitive.material_index,
 				.id = pidx,
 				.culled = false, // Material is double sided, meaning we can't cull.
 			});
@@ -211,9 +227,26 @@ struct visbuffer_frag_out {
 
 /// We assume here that accessing the barycentrics is free, since they needed to be calculated
 /// anyway for generating the exact fragment position (I think).
-[[fragment, early_fragment_tests]] visbuffer_frag_out visbuffer_frag(
+[[fragment]] visbuffer_frag_out visbuffer_frag(
 		fragment_in in [[stage_in]],
+		device const shaders::material_t* materials [[buffer(0)]],
+		const shaders::ResourceTable resourceTable [[buffer(1)]],
 		float3 barycentrics [[barycentric_coord]]) {
+	device const auto& material = materials[in.prim.material_id];
+	if (material.alpha_mode != shaders::alpha_mode_e::opaque) {
+		auto color = in.vert.color;
+
+		if (material.albedo.index != shaders::invalidHandle) {
+			device auto& albedo_tex = resourceTable[material.albedo.index];
+
+			color *= albedo_tex.tex.sample(
+				albedo_tex.sampler, transform_uv(material.albedo, in.vert.uv));
+		}
+
+		if (color.a < material.alpha_cutoff)
+			mtl::discard_fragment();
+	}
+
 	return {
 		.tile_data {
 			.visbuffer = uint32_t(shaders::visbuffer_data(in.prim.draw_id, in.prim.id)),
@@ -380,6 +413,9 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 		data->color = data->color * albedo_tex.tex.sample(
 			albedo_tex.sampler, transform_uv(material.albedo, uv.value), uv.grad);
 	}
+
+	// This currently only supports opaque or masked alpha modes, so the alpha value needs to always be 1 here.
+	data->color = float4(float4(data->color).xyz, 1.f);
 
 	// Sample metallic roughness
 	data->metallic_roughness = half2(material.roughness_factor, material.metallic_factor);
