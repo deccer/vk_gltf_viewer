@@ -26,7 +26,7 @@ namespace graphics::metal::imgui {
 		MTL::RenderPipelineState* pipelineState = nullptr;
 
 		NS::SharedPtr<MTL::Texture> fontAtlas;
-		shaders::ResourceTableHandle fontAtlasHandle = shaders::invalidHandle;
+		shaders::ResourceTableHandle fontAtlasHandle = shaders::invalid_handle;
 		NS::SharedPtr<MTL::SamplerState> fontAtlasSampler;
 
 		std::vector<GeometryBuffers> buffers;

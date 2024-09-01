@@ -52,3 +52,6 @@
 [submodule "submodules/metal-cpp"]
 	path = submodules/metal-cpp
 	url = https://github.com/bkaradzic/metal-cpp
+[submodule "submodules/mikktspace"]
+	path = submodules/mikktspace
+	url = https://github.com/mmikk/MikkTSpace

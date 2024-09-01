@@ -227,12 +227,19 @@ if(EXISTS "${VKV_DEPS_DIR}/metal-cpp" AND APPLE)
     add_library(metal::cpp ALIAS metal-cpp)
     target_include_directories(metal-cpp INTERFACE "${VKV_DEPS_DIR}/metal-cpp")
     target_link_libraries(metal-cpp INTERFACE
-            "-framework Metal"
-            "-framework MetalKit"
-            "-framework AppKit"
-            "-framework Foundation"
-            "-framework QuartzCore"
+        "-framework Metal"
+        "-framework MetalKit"
+        "-framework AppKit"
+        "-framework Foundation"
+        "-framework QuartzCore"
     )
+endif()
+
+if(EXISTS "${VKV_DEPS_DIR}/mikktspace")
+    add_library(mikktspace
+        "${VKV_DEPS_DIR}/mikktspace/mikktspace.h"
+        "${VKV_DEPS_DIR}/mikktspace/mikktspace.c")
+    target_include_directories(mikktspace PUBLIC "${VKV_DEPS_DIR}/mikktspace")
 endif()
 
 return(PROPAGATE SHADER_INCLUDE_DIRS)

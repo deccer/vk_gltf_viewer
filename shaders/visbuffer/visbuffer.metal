@@ -210,7 +210,7 @@ struct rgb16unorm {
 /// derivatives using the barycentrics in a tile shader to manually interpolate vertex attributes
 /// and generate the various GBuffer textures.
 struct visbuffer_tile_data {
-	mtl::rgba8unorm<float4> color [[raster_order_group(0)]];
+	mtl::rgba8unorm<float4> albedo [[raster_order_group(0)]];
 	packed_float4 normal [[raster_order_group(0)]];
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
 	uint visbuffer [[raster_order_group(0)]];
@@ -236,7 +236,7 @@ struct visbuffer_frag_out {
 	if (material.alpha_mode != shaders::alpha_mode_e::opaque) {
 		auto color = in.vert.color;
 
-		if (material.albedo.index != shaders::invalidHandle) {
+		if (material.albedo.index != shaders::invalid_handle) {
 			device auto& albedo_tex = resourceTable[material.albedo.index];
 
 			color *= albedo_tex.tex.sample(
@@ -400,9 +400,9 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 
 	const auto color = interpolate(float3(data->barycentrics),
 		float4(vtx0.color), float4(vtx1.color), float4(vtx2.color));
-	data->color = color * float4(material.albedo_factor);
+	data->albedo = color * float4(material.albedo_factor);
 
-	if (material.albedo.index != shaders::invalidHandle) {
+	if (material.albedo.index != shaders::invalid_handle) {
 		device auto& albedo_tex = resourceTable[material.albedo.index];
 
 		device auto* albedo_uv_buffer = primitive.uv_buffers[material.albedo.uv_set];
@@ -410,16 +410,16 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 			albedo_uv_buffer[indices.x], albedo_uv_buffer[indices.y], albedo_uv_buffer[indices.z]);
 
 		// Metal's pixel types don't support *= for some reason...
-		data->color = data->color * albedo_tex.tex.sample(
+		data->albedo = data->albedo * albedo_tex.tex.sample(
 			albedo_tex.sampler, transform_uv(material.albedo, uv.value), uv.grad);
 	}
 
 	// This currently only supports opaque or masked alpha modes, so the alpha value needs to always be 1 here.
-	data->color = float4(float4(data->color).xyz, 1.f);
+	data->albedo = float4(float4(data->albedo).xyz, 1.f);
 
 	// Sample metallic roughness
 	data->metallic_roughness = half2(material.roughness_factor, material.metallic_factor);
-	if (material.metallic_roughness.index != shaders::invalidHandle) {
+	if (material.metallic_roughness.index != shaders::invalid_handle) {
 		device auto& mr_tex = resourceTable[material.metallic_roughness.index];
 		device auto* mr_uv_buffer = primitive.uv_buffers[material.metallic_roughness.uv_set];
 		const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient,
@@ -430,7 +430,30 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 			mr_tex.sampler, transform_uv(material.metallic_roughness, uv.value), uv.grad).gb);
 	}
 
-	auto normal = as_transposed_3x3(transform.inverse_matrix) * interpolate(float3(data->barycentrics),
+	auto transposed_inverse = as_transposed_3x3(transform.inverse_matrix);
+	auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
 		float3(vtx0.normal), float3(vtx1.normal), float3(vtx2.normal));
+
+	if (material.normal.index != shaders::invalid_handle) {
+		auto tangent = interpolate(float3(data->barycentrics),
+			float4(vtx0.tangent), float4(vtx1.tangent), float4(vtx2.tangent));
+
+		device auto& tex = resourceTable[material.normal.index];
+		device auto* uv_buffer = primitive.uv_buffers[material.normal.uv_set];
+		const auto uv = interpolate_with_gradient(float3(data->barycentrics), gradient,
+			uv_buffer[indices.x], uv_buffer[indices.y], uv_buffer[indices.z]);
+
+		// The texture binding for normal textures MAY additionally contain a scalar scale value that linearly scales X and Y components of the normal vector.
+		// Normal vectors MUST be normalized before being used in lighting equations. When scaling is used, vector normalization happens after scaling.
+		auto sampled_normal = tex.tex.sample(tex.sampler, transform_uv(material.normal, uv.value), uv.grad).xyz;
+		sampled_normal = mtl::normalize((sampled_normal * 2.0 - 1.0) * float3(material.normal_scale, material.normal_scale, 1.f));
+
+		auto T = mtl::normalize(transposed_inverse * tangent.xyz);
+		T = mtl::normalize(T - mtl::dot(T, normal) * normal);
+		auto B = mtl::cross(normal, T) * tangent.w;
+		auto TBN = mtl::float3x3(T, B, normal);
+
+		normal = mtl::normalize(TBN * sampled_normal);
+	}
 	data->normal = float4(mtl::normalize(normal), 1.f);
 }

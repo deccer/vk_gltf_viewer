@@ -37,7 +37,7 @@ void graphics::ResourceTable::freeHandle(std::vector<std::uint64_t>& bitmap, sha
 
 void graphics::ResourceTable::removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept {
 	ZoneScoped;
-	if (handle == shaders::invalidHandle)
+	if (handle == shaders::invalid_handle)
 		return;
 	freeHandle(sampledImageBitmap, handle);
 }
@@ -162,7 +162,7 @@ shaders::ResourceTableHandle gvk::VkResourceTable::allocateSampledImage(VkImageV
 
 void gvk::VkResourceTable::removeStorageImageHandle(shaders::ResourceTableHandle handle) noexcept {
 	ZoneScoped;
-	if (handle == shaders::invalidHandle)
+	if (handle == shaders::invalid_handle)
 		return;
 	freeHandle(storageImageBitmap, handle);
 }

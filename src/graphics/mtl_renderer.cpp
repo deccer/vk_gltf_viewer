@@ -276,13 +276,13 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 	materials.emplace_back(shaders::material_t {
 		.albedo_factor = glm::fvec4(1.f),
 		.albedo = {
-			.index = shaders::invalidHandle,
+			.index = shaders::invalid_handle,
 			.uv_set = 0,
 		},
 		.metallic_factor = 1.f,
 		.roughness_factor = 1.f,
 		.metallic_roughness = {
-			.index = shaders::invalidHandle,
+			.index = shaders::invalid_handle,
 			.uv_set = 0,
 		},
 		.alpha_cutoff = 0.5f,

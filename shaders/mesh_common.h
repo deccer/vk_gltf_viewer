@@ -73,6 +73,7 @@ struct Meshlet {
 
 struct vertex_t {
 	packed_fvec3 normal;
+	packed_fvec4 tangent;
 
 #if defined(SHADER_METAL)
 	mtl::rgba8unorm<float4> color;
@@ -146,7 +147,7 @@ struct primitive_transform_t {
 };
 
 struct material_texture_t {
-	ResourceTableHandle index MEMBER_INIT(shaders::invalidHandle);
+	ResourceTableHandle index MEMBER_INIT(shaders::invalid_handle);
 	uint32_t uv_set MEMBER_INIT(0);
 	packed_fvec2 uv_offset MEMBER_INIT(fvec2(0.f));
 	packed_fvec2 uv_scale MEMBER_INIT(fvec2(1.f));
@@ -170,6 +171,9 @@ struct material_t {
 	float metallic_factor;
 	float roughness_factor;
 	material_texture_t metallic_roughness;
+
+	float normal_scale;
+	material_texture_t normal;
 
 	alpha_mode_e alpha_mode;
 	float alpha_cutoff;

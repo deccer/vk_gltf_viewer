@@ -484,7 +484,7 @@ void gvk::imgui::Renderer::draw(VkCommandBuffer commandBuffer, VkImageView swapc
 			};
 			vkCmdSetScissor(commandBuffer, 0, 1, &rect);
 
-			if (auto texId = cmd.GetTexID(); texId == shaders::invalidHandle) {
+			if (auto texId = cmd.GetTexID(); texId == shaders::invalid_handle) {
 				// If no texture ID was specified, we default to the font atlas.
 				pushConstants.imageIndex = fontAtlasHandle;
 			} else {

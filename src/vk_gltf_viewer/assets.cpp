@@ -15,6 +15,8 @@
 
 #include <meshoptimizer.h>
 
+#include <mikktspace.h>
+
 #define WUFFS_CONFIG__MODULE__AUX__IMAGE // For C++ image API
 #include "wuffs-v0.4.c"
 
@@ -411,6 +413,20 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 			}
 		}
 
+		if (gltfMaterial.normalTexture) {
+			material.normal_scale = gltfMaterial.normalTexture->scale;
+			auto& tex = material.normal;
+			tex.index = textureTask->textures[gltfMaterial.normalTexture->textureIndex]->getHandle();
+			tex.uv_set = static_cast<std::uint32_t>(gltfMaterial.normalTexture->texCoordIndex);
+			if (auto& transform = gltfMaterial.normalTexture->transform; transform) {
+				tex.uv_offset = glm::make_vec2(transform->uvOffset.data());
+				tex.uv_scale = glm::make_vec2(transform->uvScale.data());
+				tex.uv_rotation = transform->rotation;
+			}
+		} else {
+			material.normal_scale = 1.f;
+		}
+
 		std::lock_guard lock(materialMutex);
 		materials[i] = renderer->createMaterial(material);
 	}
@@ -511,6 +527,14 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		for (std::size_t i = 0; i < normals.size(); ++i) {
 			vertices[i].normal = glm::normalize(normals[i]);
 		}
+	}
+
+	if (auto* tangentAttribute = gltfPrimitive.findAttribute("TANGENT"); tangentAttribute != gltfPrimitive.attributes.end()) {
+		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex], [&](glm::fvec4 val, std::size_t idx) {
+			vertices[idx].tangent = val;
+		}, adapter);
+	} else {
+		// TODO: Use mikktspace somehow
 	}
 
 	if (auto* colorAttribute = gltfPrimitive.findAttribute("COLOR_0"); colorAttribute != gltfPrimitive.attributes.end()) {

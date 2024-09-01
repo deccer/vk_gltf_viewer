@@ -199,7 +199,7 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 
 			pass->useResource(fontAtlas.get(), MTL::ResourceUsageSample);
 
-			if (auto texId = cmd.GetTexID(); texId == shaders::invalidHandle) {
+			if (auto texId = cmd.GetTexID(); texId == shaders::invalid_handle) {
 				constants.imageIndex = fontAtlasHandle;
 			} else {
 				// TODO: Figure out how to make other textures resident.

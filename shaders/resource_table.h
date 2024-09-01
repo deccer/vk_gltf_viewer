@@ -33,7 +33,7 @@ layout(set = 0, binding = storageImageBinding, rgba8) uniform writeonly image2D 
 #define ResourceTableHandle uint
 #endif
 
-SHADER_CONSTANT ResourceTableHandle invalidHandle = ~0U;
+SHADER_CONSTANT ResourceTableHandle invalid_handle = ~0U;
 
 SHADER_NAMESPACE_END
 #endif

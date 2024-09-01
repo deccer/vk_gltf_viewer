@@ -23,7 +23,7 @@ namespace graphics {
 	class Sampler {};
 	class Image {};
 	class Texture {
-		shaders::ResourceTableHandle handle = shaders::invalidHandle;
+		shaders::ResourceTableHandle handle = shaders::invalid_handle;
 
 	public:
 		explicit Texture(const shaders::ResourceTableHandle handle) noexcept : handle(handle) {}
