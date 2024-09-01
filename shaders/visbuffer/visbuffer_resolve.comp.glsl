@@ -35,7 +35,7 @@ void main() {
 	restrict primitive_t primitive = pushConstants.primitiveBuffer.primitives[draw.primitive_index];
 	restrict const material_t material = pushConstants.materialBuffer.materials[primitive.material_index];
 
-	vec4 resolved = fromLinear(material.albedo_factor);
+	vec4 resolved = from_linear(material.albedo_factor);
 
 	imageStore(writeonly_image2d_rgba8_heap[pushConstants.outputImageHandle], pixel, resolved);
 }

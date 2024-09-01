@@ -163,6 +163,8 @@ namespace shaders {
 #define PARAMETER_COPY(Name) in Name
 #define PARAMETER_REF(Name) inout Name
 #define PARAMETER_CREF(Name) inout Name
+
+#define saturate(Value) clamp(Value, 0.f, 1.f)
 #endif
 
 #endif

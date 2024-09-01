@@ -2,6 +2,7 @@
 #define SHADERS_MESH_COMMON_H
 
 #include "common.h"
+#include "relational.h"
 
 #if defined(SHADER_GLSL)
 #extension GL_EXT_buffer_reference : require
@@ -192,22 +193,22 @@ FUNCTION_INLINE fvec2 transform_uv(material_texture_t texture, fvec2 uv) {
 #endif
 
 // Octahedron-normal vectors encoding for use in the GBuffer
-#if defined(SHADER_METAL)
-inline fvec2 oct_wrap(fvec2 v) {
+#if !defined(SHADER_CPP)
+FUNCTION_INLINE fvec2 oct_wrap(fvec2 v) {
 	fvec2 factor = fvec2(
 		v.x >= 0.f ? 1.f : -1.f,
 		v.y >= 0.f ? 1.f : -1.f);
 	return (1.f - abs(v.yx)) * factor;
 }
 
-inline fvec2 normal_encode(fvec3 n) {
+FUNCTION_INLINE fvec2 normal_encode(fvec3 n) {
 	n /= (abs(n.x) + abs(n.y) + abs(n.z));
 	n.xy = n.z >= 0.f ? n.xy : oct_wrap(n.xy);
 	return n.xy * 0.5f + 0.5f;
 }
 
-inline fvec3 normal_decode(fvec2 f) {
-	if (all(f == fvec2(0.f))) {
+FUNCTION_INLINE fvec3 normal_decode(fvec2 f) {
+	if (all(equal(f, fvec2(0.f)))) {
 		return fvec3(0.f);
 	}
 
@@ -220,7 +221,7 @@ inline fvec3 normal_decode(fvec2 f) {
 	n.y += n.y >= 0.f ? -t : t;
 	return normalize(n);
 }
-#elif defined(SHADER_CPP)
+#else
 inline fvec2 oct_wrap(fvec2 v) {
 	auto factor = fvec2(
 		v.x >= 0.f ? 1.f : -1.f,

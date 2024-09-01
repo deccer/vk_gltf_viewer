@@ -2,6 +2,7 @@
 
 #include "shading.h"
 #include "mesh_common.h"
+#include "srgb.h"
 
 namespace mtl = metal;
 
@@ -107,5 +108,5 @@ struct gbuffer_tile_data {
 	auto metal_brdf = conductor_fresnel(albedo, specular, VdotH);
 	auto final = mtl::mix(dielectric_brdf, metal_brdf, data->metallic_roughness.y);
 
-	data->color = half4(ambient * albedo + final, 1.h);
+	data->color = shaders::from_linear(half4(ambient * albedo + final, 1.h));
 }

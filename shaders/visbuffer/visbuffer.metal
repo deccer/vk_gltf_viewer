@@ -3,6 +3,7 @@
 #include "visbuffer.h"
 #include "mesh_common.h"
 #include "culling.h"
+#include "srgb.h"
 
 namespace mtl = metal;
 
@@ -239,8 +240,8 @@ struct visbuffer_frag_out {
 		if (material.albedo.index != shaders::invalid_handle) {
 			device auto& albedo_tex = resourceTable[material.albedo.index];
 
-			color *= albedo_tex.tex.sample(
-				albedo_tex.sampler, transform_uv(material.albedo, in.vert.uv));
+			color *= shaders::to_linear(albedo_tex.tex.sample(
+				albedo_tex.sampler, transform_uv(material.albedo, in.vert.uv)));
 		}
 
 		if (color.a < material.alpha_cutoff)
@@ -410,8 +411,8 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 			albedo_uv_buffer[indices.x], albedo_uv_buffer[indices.y], albedo_uv_buffer[indices.z]);
 
 		// Metal's pixel types don't support *= for some reason...
-		data->albedo = data->albedo * albedo_tex.tex.sample(
-			albedo_tex.sampler, transform_uv(material.albedo, uv.value), uv.grad);
+		data->albedo = data->albedo * shaders::to_linear(albedo_tex.tex.sample(
+			albedo_tex.sampler, transform_uv(material.albedo, uv.value), uv.grad));
 	}
 
 	// This currently only supports opaque or masked alpha modes, so the alpha value needs to always be 1 here.
