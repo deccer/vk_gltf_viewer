@@ -211,7 +211,7 @@ struct rgb16unorm {
 /// and generate the various GBuffer textures.
 struct visbuffer_tile_data {
 	mtl::rgba8unorm<float4> albedo [[raster_order_group(0)]];
-	packed_float4 normal [[raster_order_group(0)]];
+	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
 	uint visbuffer [[raster_order_group(0)]];
 
@@ -455,5 +455,5 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 
 		normal = mtl::normalize(TBN * sampled_normal);
 	}
-	data->normal = float4(mtl::normalize(normal), 1.f);
+    data->normal = shaders::normal_encode(mtl::normalize(normal));
 }

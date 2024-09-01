@@ -121,7 +121,7 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 
 static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 	MTL::PixelFormatRGBA8Unorm, // Color
-	MTL::PixelFormatRGBA32Float, // Normals
+	MTL::PixelFormatRG16Unorm, // Normals
 	MTL::PixelFormatRG16Float, // Metallic & Roughness
 }};
 
@@ -188,7 +188,7 @@ void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
 	albedo_texture->setLabel(MTLSTR("Albedo"));
 
 	auto* normal_desc = MTL::TextureDescriptor::texture2DDescriptor(
-		MTL::PixelFormatRGBA32Float, size.width, size.height, false);
+		MTL::PixelFormatRG16Unorm, size.width, size.height, false);
 	normal_desc->setUsage(MTL::TextureUsageRenderTarget);
 	normal_desc->setStorageMode(MTL::StorageModePrivate);
 

@@ -194,35 +194,44 @@ FUNCTION_INLINE fvec2 transform_uv(material_texture_t texture, fvec2 uv) {
 // Octahedron-normal vectors encoding for use in the GBuffer
 #if defined(SHADER_METAL)
 inline fvec2 oct_wrap(fvec2 v) {
-	return (1.0 - abs(v.yx)) * (all(v.xy >= fvec2(0.)) ? 1.0 : -1.0);
+	fvec2 factor = fvec2(
+		v.x >= 0.f ? 1.f : -1.f,
+		v.y >= 0.f ? 1.f : -1.f);
+	return (1.f - abs(v.yx)) * factor;
 }
 
 inline fvec2 normal_encode(fvec3 n) {
 	n /= (abs(n.x) + abs(n.y) + abs(n.z));
-	n.xy = n.z >= 0.0 ? n.xy : oct_wrap(n.xy);
-	n.xy = n.xy * 0.5 + 0.5;
-	return n.xy;
+	n.xy = n.z >= 0.f ? n.xy : oct_wrap(n.xy);
+	return n.xy * 0.5f + 0.5f;
 }
 
 inline fvec3 normal_decode(fvec2 f) {
-	f = f * 2.0 - 1.0;
+	if (all(f == fvec2(0.f))) {
+		return fvec3(0.f);
+	}
+
+	f = f * 2.f - 1.f;
 
 	// https://twitter.com/Stubbesaurus/status/937994790553227264
-	fvec3 n = fvec3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+	fvec3 n = fvec3(f.x, f.y, 1.f - abs(f.x) - abs(f.y));
 	float t = saturate(-n.z);
-	n.xy += all(n.xy >= fvec2(0.)) ? -t : t;
+	n.x += n.x >= 0.f ? -t : t;
+	n.y += n.y >= 0.f ? -t : t;
 	return normalize(n);
 }
 #elif defined(SHADER_CPP)
 inline fvec2 oct_wrap(fvec2 v) {
-	return (1.f - abs(glm::yx(v))) * (all(glm::greaterThanEqual(glm::xy(v), fvec2(0.f))) ? 1.f : -1.f);
+	auto factor = fvec2(
+		v.x >= 0.f ? 1.f : -1.f,
+		v.y >= 0.f ? 1.f : -1.f);
+	return (1.f - abs(glm::yx(v))) * factor;
 }
 
 inline fvec2 normal_encode(fvec3 n) {
 	n /= (abs(n.x) + abs(n.y) + abs(n.z));
 	glm::xy(n) = n.z >= 0.f ? glm::xy(n) : oct_wrap(glm::xy(n));
-	glm::xy(n) = glm::xy(n) * 0.5f + 0.5f;
-	return glm::xy(n);
+	return glm::xy(n) * 0.5f + 0.5f;
 }
 
 inline fvec3 normal_decode(fvec2 f) {
@@ -231,7 +240,8 @@ inline fvec3 normal_decode(fvec2 f) {
 	// https://twitter.com/Stubbesaurus/status/937994790553227264
 	fvec3 n = fvec3(f.x, f.y, 1.f - abs(f.x) - abs(f.y));
 	float t = glm::clamp(-n.z, 0.f, 1.f);
-	glm::xy(n) += all(glm::greaterThanEqual(glm::xy(n), fvec2(0.))) ? -t : t;
+	n.x += n.x >= 0.f ? -t : t;
+	n.y += n.y >= 0.f ? -t : t;
 	return normalize(n);
 }
 #endif
