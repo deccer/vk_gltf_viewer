@@ -66,7 +66,7 @@ half3 conductor_fresnel(half3 f0, half3 bsdf, half VdotH) {
 struct gbuffer_tile_data {
 	packed_half4 color [[raster_order_group(0)]];
 	mtl::rgba8unorm<half4> albedo [[raster_order_group(0)]];
-    mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
+	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
 };
 

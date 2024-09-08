@@ -389,6 +389,7 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 			}(),
 			.alpha_cutoff = gltfMaterial.alphaCutoff,
 			.double_sided = gltfMaterial.doubleSided,
+			.ior = gltfMaterial.ior,
 		};
 
 		if (pbr.baseColorTexture) {
@@ -431,6 +432,94 @@ void MaterialLoadTask::ExecuteRange(enki::TaskSetPartition range, std::uint32_t 
 		materials[i] = renderer->createMaterial(material);
 	}
 }
+
+class tangent_calculation {
+	static int get_vertex_index(const SMikkTSpaceContext *context, int iFace, int iVert) {
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+
+		auto face_size = get_num_vertices_of_face(context, iFace);
+
+		auto indices_index = (iFace * face_size) + iVert;
+
+		return static_cast<int>(data.indices[indices_index]);
+	}
+
+	static int get_num_faces(const SMikkTSpaceContext *context) {
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+		return static_cast<int>(data.indices.size() / 3);
+	}
+
+	static int get_num_vertices_of_face(const SMikkTSpaceContext *context, int iFace) {
+		return 3;
+	}
+
+	static void get_position(const SMikkTSpaceContext *context, float outpos[], int iFace, int iVert) {
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+		auto index = get_vertex_index(context, iFace, iVert);
+		auto& vtx = data.positions[index];
+		outpos[0] = vtx.x;
+		outpos[1] = vtx.y;
+		outpos[2] = vtx.z;
+	}
+
+	static void get_normal(const SMikkTSpaceContext *context, float outnormal[], int iFace, int iVert) {
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+		auto index = get_vertex_index(context, iFace, iVert);
+		auto& vtx = data.vertices[index];
+		outnormal[0] = vtx.normal.x;
+		outnormal[1] = vtx.normal.y;
+		outnormal[2] = vtx.normal.z;
+	}
+
+	static void get_tex_coords(const SMikkTSpaceContext *context, float outuv[], int iFace, int iVert) {
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+		auto index = get_vertex_index(context, iFace, iVert);
+		// TODO: Support multiple UV sets somehow? the gltf spec allows any number of uv sets to be used,
+		// but the material specifies which one to use. Therefore, it'd be hard to precompute tangents here.
+		auto& vtx = data.uvs[index];
+		outuv[0] = vtx.x;
+		outuv[1] = vtx.y;
+	}
+
+	static void set_tspace_basic(const SMikkTSpaceContext *context,
+								 const float tangentu[],
+								 float fSign, int iFace, int iVert) {
+		// TODO: This isn't quite correct, since something about mikktspace working with faces
+		// and not vertices so one would technically need to weld the newly generated vertices together again,
+		// but I quite frankly don't care enough right now.
+		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
+		auto index = get_vertex_index(context, iFace, iVert);
+		auto& vtx = data.vertices[index];
+		vtx.tangent = glm::vec4(glm::make_vec3(tangentu), -fSign);
+	}
+
+	SMikkTSpaceInterface interface {
+		.m_getNumFaces = get_num_faces,
+		.m_getNumVerticesOfFace = get_num_vertices_of_face,
+		.m_getPosition = get_position,
+		.m_getNormal = get_normal,
+		.m_getTexCoord = get_tex_coords,
+		.m_setTSpaceBasic = set_tspace_basic,
+	};
+	SMikkTSpaceContext context {
+		.m_pInterface = &interface,
+	};
+
+	std::span<glm::fvec3> positions;
+	std::span<shaders::vertex_t> vertices;
+	std::span<glm::fvec2> uvs;
+	std::span<graphics::index_t> indices;
+
+public:
+	explicit tangent_calculation(std::span<glm::fvec3> positions, std::span<shaders::vertex_t> vertices, std::span<glm::fvec2> uvs, std::span<graphics::index_t> indices)
+		: positions(positions), vertices(vertices), uvs(uvs), indices(indices) {
+		context.m_pUserData = this;
+	}
+
+	void operator()() const {
+		genTangSpaceDefault(&context);
+	}
+};
 
 /**
  * Processes all glTF primitives into meshlets
@@ -491,22 +580,22 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		aabbExtents = primitiveMax - aabbCenter;
 	}
 
-	std::vector positions(std::from_range, fastgltf::iterateAccessor<glm::fvec3>(asset, posAccessor));
+	std::vector positions(std::from_range, fastgltf::iterateAccessor<glm::fvec3>(asset, posAccessor, adapter));
 
 	assert(gltfPrimitive.indicesAccessor.has_value());
 	auto& idxAccessor = asset.accessors[gltfPrimitive.indicesAccessor.value()];
 
-	std::vector<graphics::index_t> indices(idxAccessor.count);
-	fastgltf::copyFromAccessor<graphics::index_t>(
-			asset, idxAccessor, indices.data(), adapter);
+	std::vector indices(std::from_range, fastgltf::iterateAccessor<graphics::index_t>(asset, idxAccessor, adapter));
 
 	std::vector vertices(posAccessor.count, shaders::vertex_t {
 		.color = glm::u8vec4(255),
 	});
 
+	bool generated_normals = false;
 	if (auto* normalAttribute = gltfPrimitive.findAttribute("NORMAL"); normalAttribute != gltfPrimitive.attributes.end()) {
 		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex], [&](glm::vec3 val, std::size_t idx) {
 			vertices[idx].normal = val;
+			//vertices[idx].normal = glm::packHalf2x16(shaders::normal_encode(val));
 		}, adapter);
 	} else {
 		// Generate basic smooth vertex normals. As we quantize the normals, we have to store them first to normalize them afterwards.
@@ -526,15 +615,9 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		}
 		for (std::size_t i = 0; i < normals.size(); ++i) {
 			vertices[i].normal = glm::normalize(normals[i]);
+			//vertices[i].normal = glm::packHalf2x16(shaders::normal_encode(normals[i]));
 		}
-	}
-
-	if (auto* tangentAttribute = gltfPrimitive.findAttribute("TANGENT"); tangentAttribute != gltfPrimitive.attributes.end()) {
-		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex], [&](glm::fvec4 val, std::size_t idx) {
-			vertices[idx].tangent = val;
-		}, adapter);
-	} else {
-		// TODO: Use mikktspace somehow
+		generated_normals = true;
 	}
 
 	if (auto* colorAttribute = gltfPrimitive.findAttribute("COLOR_0"); colorAttribute != gltfPrimitive.attributes.end()) {
@@ -571,6 +654,15 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 
 		auto& accessor = asset.accessors[accessor_index];
 		uvs[idx] = std::vector(std::from_range, fastgltf::iterateAccessor<glm::fvec2>(asset, accessor));
+	}
+
+	// the glTF spec requires us to re-generate tangents if we had to generate our own normals
+	if (auto* tangentAttribute = gltfPrimitive.findAttribute("TANGENT"); !generated_normals && tangentAttribute != gltfPrimitive.attributes.end()) {
+		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex], [&](glm::fvec4 val, std::size_t idx) {
+			vertices[idx].tangent = val;
+		}, adapter);
+	} else {
+		tangent_calculation(positions, vertices, uvs[0], indices)();
 	}
 
 	auto* materialTask = dynamic_cast<const MaterialLoadTask*>(materialDependency.GetDependencyTask());
