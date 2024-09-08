@@ -41,7 +41,7 @@ half visibility_function(half alpha, half NdotL, half NdotV) {
 	auto ggxl = NdotV * mtl::sqrt(mtl::pow(NdotL, 2.h) * (1.h - alpha_squared) + alpha_squared);
 
 	auto ggx = ggxv + ggxl;
-	if (ggx > 0.h)
+	if (ggx > 0.00001h) // Avoids div by 0 and returning infinity
 		return 0.5h / ggx;
 	return 0.h;
 }

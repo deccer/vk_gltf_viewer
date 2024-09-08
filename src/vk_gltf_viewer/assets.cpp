@@ -1,3 +1,4 @@
+#include <ranges>
 #include <utility>
 #include <mutex>
 
@@ -438,15 +439,12 @@ class tangent_calculation {
 		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
 
 		auto face_size = get_num_vertices_of_face(context, iFace);
-
-		auto indices_index = (iFace * face_size) + iVert;
-
-		return static_cast<int>(data.indices[indices_index]);
+		return (iFace * face_size) + iVert;
 	}
 
 	static int get_num_faces(const SMikkTSpaceContext *context) {
 		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
-		return static_cast<int>(data.indices.size() / 3);
+		return static_cast<int>(data.positions.size() / 3);
 	}
 
 	static int get_num_vertices_of_face(const SMikkTSpaceContext *context, int iFace) {
@@ -484,9 +482,6 @@ class tangent_calculation {
 	static void set_tspace_basic(const SMikkTSpaceContext *context,
 								 const float tangentu[],
 								 float fSign, int iFace, int iVert) {
-		// TODO: This isn't quite correct, since something about mikktspace working with faces
-		// and not vertices so one would technically need to weld the newly generated vertices together again,
-		// but I quite frankly don't care enough right now.
 		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
 		auto index = get_vertex_index(context, iFace, iVert);
 		auto& vtx = data.vertices[index];
@@ -508,11 +503,10 @@ class tangent_calculation {
 	std::span<glm::fvec3> positions;
 	std::span<shaders::vertex_t> vertices;
 	std::span<glm::fvec2> uvs;
-	std::span<graphics::index_t> indices;
 
 public:
-	explicit tangent_calculation(std::span<glm::fvec3> positions, std::span<shaders::vertex_t> vertices, std::span<glm::fvec2> uvs, std::span<graphics::index_t> indices)
-		: positions(positions), vertices(vertices), uvs(uvs), indices(indices) {
+	explicit tangent_calculation(std::span<glm::fvec3> positions, std::span<shaders::vertex_t> vertices, std::span<glm::fvec2> uvs)
+		: positions(positions), vertices(vertices), uvs(uvs) {
 		context.m_pUserData = this;
 	}
 
@@ -564,43 +558,64 @@ glm::vec3 getAccessorMinMax(const decltype(fg::Accessor::min)& values) {
 	}, values);
 }
 
+static constexpr std::size_t baseline_stream_count = 2;
+
+std::pair<std::size_t, std::array<meshopt_Stream, baseline_stream_count + shaders::max_uv_sets>> generate_geometry_stream(
+	std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices, std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs) {
+
+	std::size_t stream_count = baseline_stream_count;
+	std::array<meshopt_Stream, baseline_stream_count + shaders::max_uv_sets> streams {{
+		{ positions.data(), sizeof(glm::fvec3), sizeof(glm::fvec3) },
+		{ vertices.data(), sizeof(shaders::vertex_t), sizeof(shaders::vertex_t) },
+	}};
+	for (auto& uv_buffer : uvs) {
+		if (uv_buffer.empty())
+			continue;
+
+		streams[stream_count++] = { uv_buffer.data(), sizeof(glm::fvec2), sizeof(glm::fvec2) };
+	}
+	return std::make_pair(stream_count, streams);
+}
+
 void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const fg::Primitive& gltfPrimitive) {
 	ZoneScoped;
+	assert(gltfPrimitive.indicesAccessor.has_value());
+	auto& idx_accessor = asset.accessors[gltfPrimitive.indicesAccessor.value()];
+
+	std::vector indices(std::from_range, fastgltf::iterateAccessor<graphics::index_t>(asset, idx_accessor, adapter));
+
 	// The code says this is possible, the spec says otherwise.
-	auto* positionIt = gltfPrimitive.findAttribute("POSITION");
-	assert(positionIt != gltfPrimitive.attributes.cend());
+	auto* position_it = gltfPrimitive.findAttribute("POSITION");
+	assert(position_it != gltfPrimitive.attributes.cend());
+	auto& pos_accessor = asset.accessors[position_it->accessorIndex];
 
-	auto& posAccessor = asset.accessors[positionIt->accessorIndex];
-
-	glm::fvec3 aabbCenter, aabbExtents;
+	glm::fvec3 aabb_center, aabb_extents;
 	{
-		auto primitiveMin = getAccessorMinMax(posAccessor.min);
-		auto primitiveMax = getAccessorMinMax(posAccessor.max);
-		aabbCenter = (primitiveMin + primitiveMax) / 2.f;
-		aabbExtents = primitiveMax - aabbCenter;
+		auto min = getAccessorMinMax(pos_accessor.min);
+		auto max = getAccessorMinMax(pos_accessor.max);
+		aabb_center = (min + max) / 2.f;
+		aabb_extents = max - aabb_center;
 	}
 
-	std::vector positions(std::from_range, fastgltf::iterateAccessor<glm::fvec3>(asset, posAccessor, adapter));
+	// We always re-generate vertex indices, and to save some reallocation time we preallocate the maximum
+	// number here already.
+	std::vector positions(std::from_range, fastgltf::iterateAccessor<glm::fvec3>(asset, pos_accessor, adapter));
 
-	assert(gltfPrimitive.indicesAccessor.has_value());
-	auto& idxAccessor = asset.accessors[gltfPrimitive.indicesAccessor.value()];
-
-	std::vector indices(std::from_range, fastgltf::iterateAccessor<graphics::index_t>(asset, idxAccessor, adapter));
-
-	std::vector vertices(posAccessor.count, shaders::vertex_t {
+	std::vector<shaders::vertex_t> vertices;
+	vertices.resize(pos_accessor.count, shaders::vertex_t {
 		.color = glm::u8vec4(255),
 	});
 
 	bool generated_normals = false;
 	if (auto* normalAttribute = gltfPrimitive.findAttribute("NORMAL"); normalAttribute != gltfPrimitive.attributes.end()) {
 		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex], [&](glm::vec3 val, std::size_t idx) {
-			vertices[idx].normal = val;
-			//vertices[idx].normal = glm::packHalf2x16(shaders::normal_encode(val));
+			vertices[idx].normal = glm::normalize(val);
+			//vertices[idx].normal = glm::packHalf2x16(shaders::normal_encode(glm::normalize(val)));
 		}, adapter);
 	} else {
 		// Generate basic smooth vertex normals. As we quantize the normals, we have to store them first to normalize them afterwards.
-		fastgltf::StaticVector<glm::vec3> normals(posAccessor.count, glm::vec3(0.f));
-		for (std::uint32_t idx = 0; idx < idxAccessor.count / 3; ++idx) {
+		fastgltf::StaticVector normals(pos_accessor.count, glm::vec3(0.f));
+		for (std::uint32_t idx = 0; idx < idx_accessor.count / 3; ++idx) {
 			auto i = indices[idx * 3];
 			auto i1 = indices[idx * 3 + 1];
 			auto i2 = indices[idx * 3 + 2];
@@ -615,7 +630,7 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 		}
 		for (std::size_t i = 0; i < normals.size(); ++i) {
 			vertices[i].normal = glm::normalize(normals[i]);
-			//vertices[i].normal = glm::packHalf2x16(shaders::normal_encode(normals[i]));
+			//vertices[i].normal = glm::packHalf2x16(shaders::normal_encode(glm::normalize(normals[i])));
 		}
 		generated_normals = true;
 	}
@@ -638,43 +653,105 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 
 	std::array<std::vector<glm::fvec2>, shaders::max_uv_sets> uvs;
 
-	// Initialize the first UV set to zeroes as a fallback
-	uvs[0] = std::vector(posAccessor.count, glm::fvec2(0.f));
-
 	for (const auto& [attribute, accessor_index] : gltfPrimitive.attributes) {
 		// TODO: Also use this loop to load the other attributes, saving some iteration time?
 		if (!attribute.starts_with("TEXCOORD_")) {
 			continue;
 		}
 
+		auto strlen = []<typename char_t, std::size_t N>(const char_t (&)[N]) consteval {
+			return N - 1;
+		};
+
 		// The spec requires indices to be just single positive decimal integers.
 		static_assert(shaders::max_uv_sets <= 9, "The following code assumes single digit UV sets only.");
-		auto idx = attribute[9] - '0';
+		auto idx = attribute[strlen("TEXCOORD_")] - '0';
 		assert(idx < uvs.size() && idx >= 0);
 
 		auto& accessor = asset.accessors[accessor_index];
-		uvs[idx] = std::vector(std::from_range, fastgltf::iterateAccessor<glm::fvec2>(asset, accessor));
+		uvs[idx].assign_range(fastgltf::iterateAccessor<glm::fvec2>(asset, accessor));
+	}
+
+	if (uvs[0].empty()) {
+		// Initialize the first UV set to zeroes as a fallback
+		uvs[0].resize(pos_accessor.count, glm::fvec2(0.f));
 	}
 
 	// the glTF spec requires us to re-generate tangents if we had to generate our own normals
+	bool generated_tangents = false;
 	if (auto* tangentAttribute = gltfPrimitive.findAttribute("TANGENT"); !generated_normals && tangentAttribute != gltfPrimitive.attributes.end()) {
-		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex], [&](glm::fvec4 val, std::size_t idx) {
+		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex],
+			[&](glm::fvec4 val, std::size_t idx) {
 			vertices[idx].tangent = val;
 		}, adapter);
-	} else {
-		tangent_calculation(positions, vertices, uvs[0], indices)();
+		generated_tangents = true;
 	}
+
+	// De-index the geometry and use meshopt to generate a new index buffer, which possibly/hopefully is more optimal.
+	{
+		auto unindexed_vertex_count = idx_accessor.count;
+		std::vector<glm::fvec3> unindexed_positions(unindexed_vertex_count);
+		std::vector<shaders::vertex_t> unindexed_vertices(unindexed_vertex_count);
+		std::array<std::vector<glm::fvec2>, shaders::max_uv_sets> unindexed_uvs;
+
+		for (std::size_t i = 0; i < unindexed_vertex_count; ++i) {
+			unindexed_positions[i] = positions[indices[i]];
+			unindexed_vertices[i] = vertices[indices[i]];
+		}
+
+		for (auto [uv, unindexed_uv] : std::views::zip(uvs, unindexed_uvs))
+			if (!uv.empty()) {
+				unindexed_uv.resize(unindexed_vertex_count);
+				for (std::size_t i = 0; i < unindexed_vertex_count; ++i)
+					unindexed_uv[i] = uv[indices[i]];
+			}
+
+		if (!generated_tangents) {
+			// Generate tangents using mikktspace. This requires unindexed geometry.
+			// TODO: Using UV0 here is wrong, but this should still work most of the time and iirc the
+			// sample viewer does so too. I have no idea how one would do it with respect to the material's
+			// normal texture's texcoord index.
+			tangent_calculation(unindexed_positions, unindexed_vertices, unindexed_uvs[0])();
+		}
+
+		const auto [stream_count, streams] = generate_geometry_stream(
+			unindexed_positions, unindexed_vertices,
+			transform_array(uvs, [](auto& buffer) { return std::span<const glm::fvec2>(buffer); }));
+
+		// Generate the remap data. index count is equal to position count here, since it is unindexed
+		std::size_t index_count = unindexed_positions.size();
+		std::vector<unsigned int> remap(index_count);
+		std::size_t vertex_count = meshopt_generateVertexRemapMulti(remap.data(), nullptr, index_count,
+			index_count, streams.data(), stream_count);
+
+		positions.resize(vertex_count);
+		vertices.resize(vertex_count);
+
+		// Finally, remap the index buffers and vertex buffers into their original buffers.
+		meshopt_remapIndexBuffer(indices.data(), nullptr, index_count, remap.data());
+		meshopt_remapVertexBuffer(positions.data(), unindexed_positions.data(), unindexed_vertex_count, sizeof(glm::fvec3), remap.data());
+		meshopt_remapVertexBuffer(vertices.data(), unindexed_vertices.data(), unindexed_vertex_count, sizeof(shaders::vertex_t), remap.data());
+		for (auto [uv, unindexed_uv] : std::views::zip(uvs, unindexed_uvs))
+			if (!unindexed_uv.empty()) {
+				uv.resize(vertex_count);
+				meshopt_remapVertexBuffer(uv.data(), unindexed_uv.data(), unindexed_vertex_count, sizeof(glm::fvec2), remap.data());
+			}
+	}
+
+	// Finally, apply some optimisation functions from meshopt
+	meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), positions.size());
 
 	auto* materialTask = dynamic_cast<const MaterialLoadTask*>(materialDependency.GetDependencyTask());
 	auto materialIndex = gltfPrimitive.materialIndex.has_value()
 		? materialTask->materials[*gltfPrimitive.materialIndex]
 		: renderer->getDefaultMaterialIndex();
 
+	assert(0 < std::count_if(uvs.begin(), uvs.end(), [](auto& uv) { return !uv.empty(); }));
 	auto mesh = renderer->createSharedMesh(
 			positions, vertices,
 			transform_array(uvs, [](auto& buffer) { return std::span<const glm::fvec2>(buffer); }),
 			indices,
-			aabbCenter, aabbExtents,
+			aabb_center, aabb_extents,
 			materialIndex);
 
 	{

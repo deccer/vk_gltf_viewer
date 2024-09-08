@@ -121,7 +121,11 @@ void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
 
 static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 	MTL::PixelFormatRGBA8Unorm, // Color
+#if GBUFFER_NORMAL_ENCODING == 1
 	MTL::PixelFormatRG16Unorm, // Normals
+#else
+	MTL::PixelFormatRGBA16Float,
+#endif
 	MTL::PixelFormatRG16Float, // Metallic & Roughness
 }};
 

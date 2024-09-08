@@ -432,8 +432,10 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 	}
 
 	auto transposed_inverse = as_transposed_3x3(transform.inverse_matrix);
-	auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
-		float3(vtx0.normal), float3(vtx1.normal), float3(vtx2.normal));
+    auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
+        float3(vtx0.normal),
+        float3(vtx1.normal),
+        float3(vtx2.normal));
 
 	if (material.normal.index != shaders::invalid_handle) {
 		auto tangent = interpolate(float3(data->barycentrics),
@@ -456,5 +458,6 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 
 		normal = mtl::normalize(TBN * sampled_normal);
 	}
+
     data->normal = shaders::normal_encode(mtl::normalize(normal));
 }
