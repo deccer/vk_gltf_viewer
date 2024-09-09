@@ -22,9 +22,9 @@
 
 namespace gmtl = graphics::metal;
 
-graphics::InstanceIndex gmtl::MeshletScene::addMeshInstance(std::shared_ptr<Mesh> mesh) {
+graphics::instance_index gmtl::meshlet_scene::add_mesh_instance(std::shared_ptr<mesh_t> mesh) {
 	ZoneScoped;
-	auto meshletMesh = std::static_pointer_cast<MeshletMesh>(mesh);
+	auto meshletMesh = std::static_pointer_cast<meshlet_mesh>(mesh);
 	//auto meshletMesh = std::dynamic_pointer_cast<MeshletMesh>(mesh);
 
 	// Add to mesh list if it's not there already
@@ -41,16 +41,16 @@ graphics::InstanceIndex gmtl::MeshletScene::addMeshInstance(std::shared_ptr<Mesh
 		if (it == meshes.end()) {
 			primitive_index = meshes.size();
 			meshes.emplace_back(meshletMesh, shaders::primitive_t {
-				.vertex_index_buffer = meshletMesh->vertexIndexBuffer->gpuAddress(),
-				.primitive_index_buffer = meshletMesh->primitiveIndexBuffer->gpuAddress(),
-				.position_buffer = meshletMesh->positionBuffer->gpuAddress(),
-				.vertex_buffer = meshletMesh->vertexBuffer->gpuAddress(),
-				.meshlet_buffer = meshletMesh->meshletBuffer->gpuAddress(),
+				.vertex_index_buffer = meshletMesh->vertex_index_buffer->gpuAddress(),
+				.primitive_index_buffer = meshletMesh->primitive_index_buffer->gpuAddress(),
+				.position_buffer = meshletMesh->position_buffer->gpuAddress(),
+				.vertex_buffer = meshletMesh->vertex_buffer->gpuAddress(),
+				.meshlet_buffer = meshletMesh->meshlet_buffer->gpuAddress(),
 				.uv_buffers = transform_array(meshletMesh->uv_buffers, [](auto& buffer) { return buffer->gpuAddress(); }),
-				.aabb_extents = meshletMesh->aabbExtents,
-				.aabb_center = meshletMesh->aabbExtents,
-				.meshlet_count = meshletMesh->meshletCount,
-				.material_index = meshletMesh->materialIndex,
+				.aabb_extents = meshletMesh->aabb_extents,
+				.aabb_center = meshletMesh->aabb_extents,
+				.meshlet_count = meshletMesh->meshlet_count,
+				.material_index = meshletMesh->material_index,
 			});
 		}
 	}
@@ -59,8 +59,8 @@ graphics::InstanceIndex gmtl::MeshletScene::addMeshInstance(std::shared_ptr<Mesh
 
 	auto instance_index = static_cast<std::uint32_t>(transforms.size());
 
-	for (std::uint32_t i = 0; i < meshletMesh->meshletCount; ++i) {
-		meshletDraws.emplace_back(shaders::meshlet_draw_t {
+	for (std::uint32_t i = 0; i < meshletMesh->meshlet_count; ++i) {
+		meshlet_draws.emplace_back(shaders::meshlet_draw_t {
 			.primitive_index = *primitive_index,
 			.meshlet_index = i,
 			.transform_index = instance_index,
@@ -71,7 +71,7 @@ graphics::InstanceIndex gmtl::MeshletScene::addMeshInstance(std::shared_ptr<Mesh
 	return instance_index;
 }
 
-void gmtl::MeshletScene::updateTransform(graphics::InstanceIndex instance, glm::fmat4x4 transform) {
+void gmtl::meshlet_scene::update_transform(graphics::instance_index instance, glm::fmat4x4 transform) {
 	ZoneScoped;
 	transforms[instance] = {
 		.matrix = transform,
@@ -79,42 +79,42 @@ void gmtl::MeshletScene::updateTransform(graphics::InstanceIndex instance, glm::
 	};
 }
 
-void gmtl::MeshletScene::updateDrawBuffers(std::size_t frameIndex) {
+void gmtl::meshlet_scene::update_draw_buffers(std::size_t frameIndex) {
 	ZoneScoped;
-	auto& drawBuffer = drawBuffers[frameIndex];
+	auto& draw_buffer = draw_buffers[frameIndex];
 
 	{
-		auto length = drawBuffer.meshletDrawBuffer ? drawBuffer.meshletDrawBuffer->length() : 0;
-		auto requiredLength = meshletDraws.size() * sizeof(decltype(meshletDraws)::value_type);
+		auto length = draw_buffer.meshlet_draw_buffer ? draw_buffer.meshlet_draw_buffer->length() : 0;
+		auto requiredLength = meshlet_draws.size() * sizeof(decltype(meshlet_draws)::value_type);
 		if (requiredLength > length) {
-			drawBuffer.meshletDrawBuffer = NS::TransferPtr(
+			draw_buffer.meshlet_draw_buffer = NS::TransferPtr(
 					device->newBuffer(requiredLength, MTL::ResourceStorageModeShared));
-			drawBuffer.meshletDrawBuffer->setLabel(MTLSTR("Meshlet draw buffer"));
+			draw_buffer.meshlet_draw_buffer->setLabel(MTLSTR("Meshlet draw buffer"));
 		}
-		std::memcpy(drawBuffer.meshletDrawBuffer->contents(), meshletDraws.data(), requiredLength);
+		std::memcpy(draw_buffer.meshlet_draw_buffer->contents(), meshlet_draws.data(), requiredLength);
 	}
 
 	{
-		auto length = drawBuffer.transformBuffer ? drawBuffer.transformBuffer->length() : 0;
+		auto length = draw_buffer.transform_buffer ? draw_buffer.transform_buffer->length() : 0;
 		auto requiredLength = transforms.size() * sizeof(decltype(transforms)::value_type);
 		if (requiredLength > length) {
-			drawBuffer.transformBuffer = NS::TransferPtr(
+			draw_buffer.transform_buffer = NS::TransferPtr(
 					device->newBuffer(requiredLength, MTL::ResourceStorageModeShared));
-			drawBuffer.transformBuffer->setLabel(MTLSTR("Transform buffer"));
+			draw_buffer.transform_buffer->setLabel(MTLSTR("Transform buffer"));
 		}
-		std::memcpy(drawBuffer.transformBuffer->contents(), transforms.data(), requiredLength);
+		std::memcpy(draw_buffer.transform_buffer->contents(), transforms.data(), requiredLength);
 	}
 
 	{
-		auto length = drawBuffer.primitiveBuffer ? drawBuffer.primitiveBuffer->length() : 0;
+		auto length = draw_buffer.primitive_buffer ? draw_buffer.primitive_buffer->length() : 0;
 		auto requiredLength = meshes.size() * sizeof(decltype(meshes)::value_type);
 		if (requiredLength > length) {
-			drawBuffer.primitiveBuffer = NS::TransferPtr(
+			draw_buffer.primitive_buffer = NS::TransferPtr(
 					device->newBuffer(requiredLength, MTL::ResourceStorageModeShared));
-			drawBuffer.primitiveBuffer->setLabel(MTLSTR("Primitive buffer"));
+			draw_buffer.primitive_buffer->setLabel(MTLSTR("Primitive buffer"));
 		}
 		for (std::size_t i = 0; auto& mesh : meshes)
-			static_cast<shaders::primitive_t*>(drawBuffer.primitiveBuffer->contents())[i++]
+			static_cast<shaders::primitive_t*>(draw_buffer.primitive_buffer->contents())[i++]
 				= mesh.primitive;
 	}
 }
@@ -129,13 +129,13 @@ static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 	MTL::PixelFormatRG16Float, // Metallic & Roughness
 }};
 
-void gmtl::visbuffer_pass::init_pass(MtlRenderer& renderer) {
+void gmtl::visbuffer_pass::init_pass(meshlet_renderer& renderer) {
 	ZoneScoped;
 	auto device = renderer.device;
 
-	auto* objectFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_object"))->autorelease();
-	auto* meshFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_mesh"))->autorelease();
-	auto* fragFunction = renderer.globalLibrary->newFunction(MTLSTR("visbuffer_frag"))->autorelease();
+	auto* objectFunction = renderer.global_library->newFunction(MTLSTR("visbuffer_object"))->autorelease();
+	auto* meshFunction = renderer.global_library->newFunction(MTLSTR("visbuffer_mesh"))->autorelease();
+	auto* fragFunction = renderer.global_library->newFunction(MTLSTR("visbuffer_frag"))->autorelease();
 
 	auto* visbuffer_pipeline_desc = MTL::MeshRenderPipelineDescriptor::alloc()->init()->autorelease();
 	visbuffer_pipeline_desc->setObjectFunction(objectFunction);
@@ -154,7 +154,7 @@ void gmtl::visbuffer_pass::init_pass(MtlRenderer& renderer) {
 		fmt::print("{}", error->localizedDescription()->utf8String());
 	}
 
-	auto* gbuffer_tile_function = renderer.globalLibrary->newFunction(MTLSTR("gbuffer_generation"));
+	auto* gbuffer_tile_function = renderer.global_library->newFunction(MTLSTR("gbuffer_generation"));
 	auto* gbuffer_tile_desc = MTL::TileRenderPipelineDescriptor::alloc()->init()->autorelease();
 	gbuffer_tile_desc->setTileFunction(gbuffer_tile_function);
 
@@ -177,7 +177,7 @@ void gmtl::visbuffer_pass::init_pass(MtlRenderer& renderer) {
 	update_resolution(renderer);
 }
 
-void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
+void gmtl::visbuffer_pass::update_resolution(meshlet_renderer& renderer) {
 	ZoneScoped;
 	auto device = renderer.device;
 
@@ -216,10 +216,10 @@ void gmtl::visbuffer_pass::update_resolution(MtlRenderer& renderer) {
 	depth_texture->setLabel(MTLSTR("Depth texture"));
 }
 
-void gmtl::shading_pass::init_pass(MtlRenderer& renderer) {
+void gmtl::shading_pass::init_pass(meshlet_renderer& renderer) {
 	auto& device = renderer.device;
 
-	auto* gbuffer_tile_function = renderer.globalLibrary->newFunction(MTLSTR("gbuffer_shading"));
+	auto* gbuffer_tile_function = renderer.global_library->newFunction(MTLSTR("gbuffer_shading"));
 	auto* gbuffer_tile_desc = MTL::TileRenderPipelineDescriptor::alloc()->init()->autorelease();
 	gbuffer_tile_desc->setTileFunction(gbuffer_tile_function);
 
@@ -237,40 +237,40 @@ void gmtl::shading_pass::init_pass(MtlRenderer& renderer) {
 	update_resolution(renderer);
 }
 
-void gmtl::shading_pass::update_resolution(MtlRenderer& renderer) {
+void gmtl::shading_pass::update_resolution(meshlet_renderer& renderer) {
 	ZoneScoped;
 	auto& device = renderer.device;
 }
 
-gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
+gmtl::meshlet_renderer::meshlet_renderer(GLFWwindow* window) {
 	ZoneScoped;
 	// pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
 
 	device = NS::TransferPtr(MTL::CreateSystemDefaultDevice());
 
-	layer = createMetalLayer(window);
+	layer = create_metal_layer(window);
 	layer->setDevice(device.get());
 	layer->setPixelFormat(MTL::PixelFormatRGBA16Float);
 
-	commandQueue = NS::TransferPtr(device->newCommandQueue());
+	command_queue = NS::TransferPtr(device->newCommandQueue());
 
-	drawSemaphore = dispatch_semaphore_create(frameOverlap);
+	draw_semaphore = dispatch_semaphore_create(frame_overlap);
 
-	resourceTable = std::make_shared<MtlResourceTable>(device);
+	resource_table = std::make_shared<mtl_resource_table>(device);
 
 	auto* libraryUrl = NS::URL::alloc()->initFileURLWithPath(MTLSTR("shaders.metallib"))->autorelease();
 
 	NS::Error* error = nullptr;
-	globalLibrary = NS::TransferPtr(device->newLibrary(libraryUrl, &error));
+	global_library = NS::TransferPtr(device->newLibrary(libraryUrl, &error));
 	if (error) {
 		fmt::print("{}", error->localizedDescription()->utf8String());
 	}
 
-	imguiRenderer = std::make_unique<imgui::Renderer>(
-			device, globalLibrary, resourceTable, layer->pixelFormat());
+	imgui_renderer = std::make_unique<imgui::imgui_renderer>(
+			device, global_library, resource_table, layer->pixelFormat());
 
-	cameraBuffers.resize(frameOverlap);
-	for (std::size_t i = 0; auto& camera : cameraBuffers) {
+	camera_buffers.resize(frame_overlap);
+	for (std::size_t i = 0; auto& camera : camera_buffers) {
 		camera = NS::TransferPtr(device->newBuffer(sizeof(shaders::camera_t), MTL::StorageModeShared));
 		auto str = fmt::format("Camera buffer {}", i++);
 		camera->setLabel(NS::String::string(str.c_str(), NS::UTF8StringEncoding));
@@ -292,43 +292,43 @@ gmtl::MtlRenderer::MtlRenderer(GLFWwindow* window) {
 		.alpha_cutoff = 0.5f,
 		.double_sided = false,
 	});
-	materialBuffers.resize(frameOverlap);
+	material_buffers.resize(frame_overlap);
 
 	// Create the default sampler.
 	// When texture.sampler is undefined, a sampler with repeat wrapping (in both directions) and auto filtering MUST be used.
 	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
 	samplerDesc->setRAddressMode(MTL::SamplerAddressModeRepeat);
 	samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
-	defaultSampler = std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
+	default_sampler = std::make_shared<mtl_sampler>(device->newSamplerState(samplerDesc));
 
 	visbuffer_pass.init_pass(*this);
 	shading_pass.init_pass(*this);
 }
 
-gmtl::MtlRenderer::~MtlRenderer() noexcept = default;
+gmtl::meshlet_renderer::~meshlet_renderer() noexcept = default;
 
-std::unique_ptr<graphics::Buffer> gmtl::MtlRenderer::createUniqueBuffer() {
+std::unique_ptr<graphics::buffer_t> gmtl::meshlet_renderer::create_unique_buffer() {
 	ZoneScoped;
-	return std::make_unique<MtlBuffer>();
+	return std::make_unique<mtl_buffer>();
 }
 
-std::shared_ptr<graphics::Buffer> gmtl::MtlRenderer::createSharedBuffer() {
+std::shared_ptr<graphics::buffer_t> gmtl::meshlet_renderer::create_shared_buffer() {
 	ZoneScoped;
-	return std::make_shared<MtlBuffer>();
+	return std::make_shared<mtl_buffer>();
 }
 
-graphics::MaterialIndex gmtl::MtlRenderer::createMaterial(shaders::material_t material) {
+graphics::material_index gmtl::meshlet_renderer::create_material(shaders::material_t material) {
 	ZoneScoped;
-	assert(materials.size() < std::numeric_limits<MaterialIndex>::max());
+	assert(materials.size() < std::numeric_limits<material_index>::max());
 	const auto index = materials.size();
 	materials.emplace_back(material);
-	return static_cast<MaterialIndex>(index);
+	return static_cast<material_index>(index);
 }
 
-std::shared_ptr<graphics::Mesh> gmtl::MtlRenderer::createSharedMesh(
+std::shared_ptr<graphics::mesh_t> gmtl::meshlet_renderer::create_shared_mesh(
 				std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
 				std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
-		glm::fvec3 aabbCenter, glm::fvec3 aabbExtents, MaterialIndex materialIndex) {
+		glm::fvec3 aabbCenter, glm::fvec3 aabbExtents, material_index materialIndex) {
 	ZoneScoped;
 	static constexpr auto coneWeight = 0.f; // We leave this as 0 because we're not using cluster cone culling.
 	static constexpr auto maxPrimitives = fastgltf::alignDown(shaders::maxPrimitives, 4U); // meshopt requires the primitive count to be aligned to 4.
@@ -338,18 +338,18 @@ std::shared_ptr<graphics::Mesh> gmtl::MtlRenderer::createSharedMesh(
 	std::vector<std::uint32_t> meshletVertices(maxMeshlets * shaders::maxVertices);
 	std::vector<std::uint8_t> meshletTriangles(maxMeshlets * maxPrimitives * 3);
 
-	auto mesh = std::make_shared<MeshletMesh>();
-	mesh->aabbCenter = aabbCenter;
-	mesh->aabbExtents = aabbExtents;
-	mesh->materialIndex = materialIndex;
+	auto mesh = std::make_shared<meshlet_mesh>();
+	mesh->aabb_center = aabbCenter;
+	mesh->aabb_extents = aabbExtents;
+	mesh->material_index = materialIndex;
 
 	// Create position buffer
-	mesh->positionBuffer = NS::TransferPtr(device->newBuffer(positions.size_bytes(), MTL::ResourceStorageModeShared));
-	std::memcpy(mesh->positionBuffer->contents(), positions.data(), positions.size_bytes());
+	mesh->position_buffer = NS::TransferPtr(device->newBuffer(positions.size_bytes(), MTL::ResourceStorageModeShared));
+	std::memcpy(mesh->position_buffer->contents(), positions.data(), positions.size_bytes());
 
 	// Create vertex buffer
-	mesh->vertexBuffer = NS::TransferPtr(device->newBuffer(vertices.size_bytes(), MTL::ResourceStorageModeShared));
-	std::memcpy(mesh->vertexBuffer->contents(), vertices.data(), vertices.size_bytes());
+	mesh->vertex_buffer = NS::TransferPtr(device->newBuffer(vertices.size_bytes(), MTL::ResourceStorageModeShared));
+	std::memcpy(mesh->vertex_buffer->contents(), vertices.data(), vertices.size_bytes());
 
 	// Create UV buffers
 	for (std::size_t i = 0; auto& uv_data : uvs) {
@@ -362,21 +362,21 @@ std::shared_ptr<graphics::Mesh> gmtl::MtlRenderer::createSharedMesh(
 
 	// Build meshlets & trim buffers accordingly
 	{
-		mesh->meshletCount = meshopt_buildMeshlets(
+		mesh->meshlet_count = meshopt_buildMeshlets(
 			meshlets.data(), meshletVertices.data(), meshletTriangles.data(),
 			indices.data(), indices.size(),
 			&positions[0].x, positions.size(), sizeof(decltype(positions)::value_type),
 			shaders::maxVertices, maxPrimitives, coneWeight);
 
-		const auto& lastMeshlet = meshlets[mesh->meshletCount - 1];
+		const auto& lastMeshlet = meshlets[mesh->meshlet_count - 1];
 		meshletVertices.resize(lastMeshlet.vertex_count + lastMeshlet.vertex_offset);
 		meshletTriangles.resize(((lastMeshlet.triangle_count * 3 + 3) & ~3) + lastMeshlet.triangle_offset);
-		meshlets.resize(mesh->meshletCount);
+		meshlets.resize(mesh->meshlet_count);
 	}
 
 	// Create meshlet buffer & transform meshlets
-	mesh->meshletBuffer = NS::TransferPtr(device->newBuffer(meshlets.size() * sizeof(shaders::Meshlet), MTL::ResourceStorageModeShared));
-	auto* glslMeshlets = static_cast<shaders::Meshlet*>(mesh->meshletBuffer->contents());
+	mesh->meshlet_buffer = NS::TransferPtr(device->newBuffer(meshlets.size() * sizeof(shaders::meshlet_t), MTL::ResourceStorageModeShared));
+	auto* glslMeshlets = static_cast<shaders::meshlet_t*>(mesh->meshlet_buffer->contents());
 	for (std::size_t i = 0; auto& meshlet : meshlets) {
 		meshopt_optimizeMeshlet(&meshletVertices[meshlet.vertex_offset],
 								&meshletTriangles[meshlet.triangle_offset],
@@ -399,7 +399,7 @@ std::shared_ptr<graphics::Mesh> gmtl::MtlRenderer::createSharedMesh(
 		assert(meshlet.vertex_count <= std::numeric_limits<std::uint8_t>::max());
 		assert(meshlet.triangle_count <= std::numeric_limits<std::uint8_t>::max());
 		auto center = (min + max) * 0.5f;
-		glslMeshlets[i++] = shaders::Meshlet {
+		glslMeshlets[i++] = shaders::meshlet_t {
 			.vertexOffset = meshlet.vertex_offset,
 			.triangleOffset = meshlet.triangle_offset,
 			.vertexCount = static_cast<std::uint8_t>(meshlet.vertex_count),
@@ -410,25 +410,25 @@ std::shared_ptr<graphics::Mesh> gmtl::MtlRenderer::createSharedMesh(
 	}
 
 	// Finally, copy the index buffers
-	mesh->vertexIndexBuffer = NS::TransferPtr(device->newBuffer(meshletVertices.size() * sizeof(decltype(meshletVertices)::value_type), MTL::StorageModeShared));
-	std::memcpy(mesh->vertexIndexBuffer->contents(), meshletVertices.data(), mesh->vertexIndexBuffer->length());
+	mesh->vertex_index_buffer = NS::TransferPtr(device->newBuffer(meshletVertices.size() * sizeof(decltype(meshletVertices)::value_type), MTL::StorageModeShared));
+	std::memcpy(mesh->vertex_index_buffer->contents(), meshletVertices.data(), mesh->vertex_index_buffer->length());
 
-	mesh->primitiveIndexBuffer = NS::TransferPtr(device->newBuffer(meshletTriangles.size() * sizeof(decltype(meshletTriangles)::value_type), MTL::StorageModeShared));
-	std::memcpy(mesh->primitiveIndexBuffer->contents(), meshletTriangles.data(), mesh->primitiveIndexBuffer->length());
+	mesh->primitive_index_buffer = NS::TransferPtr(device->newBuffer(meshletTriangles.size() * sizeof(decltype(meshletTriangles)::value_type), MTL::StorageModeShared));
+	std::memcpy(mesh->primitive_index_buffer->contents(), meshletTriangles.data(), mesh->primitive_index_buffer->length());
 
 	return mesh;
 }
 
-std::shared_ptr<graphics::Scene> gmtl::MtlRenderer::createSharedScene() {
+std::shared_ptr<graphics::scene_t> gmtl::meshlet_renderer::create_shared_scene() {
 	ZoneScoped;
-	return std::make_shared<MeshletScene>(device, graphics::frameOverlap);
+	return std::make_shared<meshlet_scene>(device, graphics::frame_overlap);
 }
 
-std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::getDefaultSampler() {
-	return defaultSampler;
+std::shared_ptr<graphics::sampler_t> gmtl::meshlet_renderer::get_default_sampler() {
+	return default_sampler;
 }
 
-MTL::SamplerAddressMode getAddressMode(fastgltf::Wrap wrap) {
+MTL::SamplerAddressMode get_address_mode(fastgltf::Wrap wrap) {
 	switch (wrap) {
 		using enum fastgltf::Wrap;
 		case ClampToEdge:
@@ -441,7 +441,7 @@ MTL::SamplerAddressMode getAddressMode(fastgltf::Wrap wrap) {
 	}
 }
 
-MTL::SamplerMinMagFilter getFilter(fastgltf::Filter filter) {
+MTL::SamplerMinMagFilter get_filter(fastgltf::Filter filter) {
 	switch (filter) {
 		using enum fastgltf::Filter;
 		case Nearest:
@@ -457,7 +457,7 @@ MTL::SamplerMinMagFilter getFilter(fastgltf::Filter filter) {
 	}
 }
 
-MTL::SamplerMipFilter getMipFilter(fastgltf::Filter filter) {
+MTL::SamplerMipFilter get_mip_filter(fastgltf::Filter filter) {
 	switch (filter) {
 		using enum fastgltf::Filter;
 		case NearestMipMapNearest:
@@ -471,18 +471,18 @@ MTL::SamplerMipFilter getMipFilter(fastgltf::Filter filter) {
 	}
 }
 
-std::shared_ptr<graphics::Sampler> gmtl::MtlRenderer::createSharedSampler(
+std::shared_ptr<graphics::sampler_t> gmtl::meshlet_renderer::create_shared_sampler(
 		const fastgltf::Sampler& sampler) {
-	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
-	samplerDesc->setSAddressMode(getAddressMode(sampler.wrapS));
-	samplerDesc->setTAddressMode(getAddressMode(sampler.wrapT));
-	samplerDesc->setMinFilter(getFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
-	samplerDesc->setMagFilter(getFilter(sampler.magFilter.value_or(fastgltf::Filter::Nearest)));
-	samplerDesc->setMipFilter(getMipFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
-	return std::make_shared<MtlSampler>(device->newSamplerState(samplerDesc));
+	auto* sampler_desc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	sampler_desc->setSAddressMode(get_address_mode(sampler.wrapS));
+	sampler_desc->setTAddressMode(get_address_mode(sampler.wrapT));
+	sampler_desc->setMinFilter(get_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
+	sampler_desc->setMagFilter(get_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest)));
+	sampler_desc->setMipFilter(get_mip_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
+	return std::make_shared<mtl_sampler>(device->newSamplerState(sampler_desc));
 }
 
-std::shared_ptr<graphics::Image> gmtl::MtlRenderer::createSharedImage(
+std::shared_ptr<graphics::image_t> gmtl::meshlet_renderer::create_shared_image(
 	std::span<std::byte> imageData, glm::u32vec2 extents) {
 ZoneScoped;
 	auto* descriptor = MTL::TextureDescriptor::alloc()->init()->autorelease();
@@ -494,9 +494,9 @@ ZoneScoped;
 	descriptor->setHeight(extents.y);
 	descriptor->setDepth(1);
 
-	auto mipmapCount = static_cast<NS::UInteger>(
+	auto mipmap_count = static_cast<NS::UInteger>(
 		ceil(log2(fastgltf::max(extents.x, extents.y))));
-	descriptor->setMipmapLevelCount(fastgltf::max<NS::UInteger>(mipmapCount, 1U));
+	descriptor->setMipmapLevelCount(fastgltf::max<NS::UInteger>(mipmap_count, 1U));
 
 	auto* texture = device->newTexture(descriptor);
 
@@ -504,31 +504,31 @@ ZoneScoped;
 		MTL::Region::Make2D(0, 0, extents.x, extents.y),
 		0, imageData.data(), sizeof(std::uint32_t) * extents.x);
 
-	if (mipmapCount > 1) {
+	if (mipmap_count > 1) {
 		// TODO: (1) Expose API that takes mipmap data, if it already exists from the image file.
 		//       (2) Avoid waiting on the command buffer here, and instead only wait for it completing
 		//           on our main command buffer, just before we actually use the textures.
-		auto* buffer = commandQueue->commandBuffer();
-		auto* blitEncoder = buffer->blitCommandEncoder();
-		blitEncoder->generateMipmaps(texture);
-		blitEncoder->endEncoding();
+		auto* buffer = command_queue->commandBuffer();
+		auto* blit_encoder = buffer->blitCommandEncoder();
+		blit_encoder->generateMipmaps(texture);
+		blit_encoder->endEncoding();
 		buffer->commit();
 		buffer->waitUntilCompleted();
 	}
 
-	return std::make_shared<MtlImage>(texture);
+	return std::make_shared<mtl_image>(texture);
 }
 
-std::shared_ptr<graphics::Texture> gmtl::MtlRenderer::createSharedTexture(std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) {
-	auto mtlImage = std::static_pointer_cast<MtlImage>(image);
-	auto mtlSampler = std::static_pointer_cast<MtlSampler>(sampler);
-	return std::make_shared<MtlTexture>(
-		resourceTable,
+std::shared_ptr<graphics::texture_t> gmtl::meshlet_renderer::create_shared_texture(std::shared_ptr<image_t> image, std::shared_ptr<sampler_t> sampler) {
+	auto mtlImage = std::static_pointer_cast<mtl_image>(image);
+	auto mtlSampler = std::static_pointer_cast<mtl_sampler>(sampler);
+	return std::make_shared<mtl_texture>(
+		resource_table,
 		mtlImage,
 		mtlSampler);
 }
 
-void gmtl::MtlRenderer::updateResolution(glm::u32vec2 resolution) {
+void gmtl::meshlet_renderer::update_resolution(glm::u32vec2 resolution) {
 	ZoneScoped;
 	resolution *= 2; // TODO: Get CA::Layer::contentScale here.
 	layer->setDrawableSize(CGSizeMake(resolution.x, resolution.y));
@@ -537,44 +537,44 @@ void gmtl::MtlRenderer::updateResolution(glm::u32vec2 resolution) {
 	shading_pass.update_resolution(*this);
 }
 
-auto gmtl::MtlRenderer::getRenderResolution() const noexcept -> glm::u32vec2 {
+auto gmtl::meshlet_renderer::get_render_resolution() const noexcept -> glm::u32vec2 {
 	auto drawableSize = layer->drawableSize();
 	return { drawableSize.width, drawableSize.height };
 }
 
-void gmtl::MtlRenderer::prepareFrame(std::size_t frameIndex) {
+void gmtl::meshlet_renderer::prepare_frame(std::size_t frameIndex) {
 	ZoneScoped;
-	dispatch_semaphore_wait(drawSemaphore, DISPATCH_TIME_FOREVER);
-	if (commandBufferException) {
-		std::rethrow_exception(commandBufferException);
+	dispatch_semaphore_wait(draw_semaphore, DISPATCH_TIME_FOREVER);
+	if (command_buffer_exception) {
+		std::rethrow_exception(command_buffer_exception);
 	}
 
-	auto& materialBuffer = materialBuffers[frameIndex];
+	auto& material_buffer = material_buffers[frameIndex];
 	if (const auto requiredSize = materials.size() * sizeof(shaders::material_t);
-		!materialBuffer || materialBuffer->length() < requiredSize) {
-		materialBuffer = NS::TransferPtr(device->newBuffer(requiredSize, MTL::StorageModeShared));
-		materialBuffer->setLabel(MTLSTR("Material buffer"));
-		std::memcpy(materialBuffer->contents(), materials.data(), requiredSize);
+		!material_buffer || material_buffer->length() < requiredSize) {
+		material_buffer = NS::TransferPtr(device->newBuffer(requiredSize, MTL::StorageModeShared));
+		material_buffer->setLabel(MTLSTR("Material buffer"));
+		std::memcpy(material_buffer->contents(), materials.data(), requiredSize);
 	}
 }
 
-bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
+bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gworld,
 							 const shaders::camera_t& camera, float dt) {
 	ZoneScoped;
 	auto* pool = NS::AutoreleasePool::alloc()->init();
 
-	auto& scene = dynamic_cast<MeshletScene&>(gworld);
+	auto& scene = dynamic_cast<meshlet_scene&>(gworld);
 
 	auto* drawable = layer->nextDrawable();
 
-	scene.updateDrawBuffers(frameIndex);
-	*static_cast<shaders::camera_t*>(cameraBuffers[frameIndex]->contents()) = camera;
+	scene.update_draw_buffers(frameIndex);
+	*static_cast<shaders::camera_t*>(camera_buffers[frameIndex]->contents()) = camera;
 
-	auto* bufferDesc = MTL::CommandBufferDescriptor::alloc()->init()->autorelease();
-	bufferDesc->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
-	auto* buffer = commandQueue->commandBuffer(bufferDesc);
+	auto* buffer_desc = MTL::CommandBufferDescriptor::alloc()->init()->autorelease();
+	buffer_desc->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
+	auto* buffer = command_queue->commandBuffer(buffer_desc);
 
-	auto drawCount = scene.meshletDraws.size();
+	auto drawCount = scene.meshlet_draws.size();
 	if (drawCount > 0) {
 		auto* visbuffer_pass_descriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
 		visbuffer_pass_descriptor->setImageblockSampleLength(visbuffer_pass.gbuffer_tile_pipeline->imageblockSampleLength());
@@ -609,34 +609,34 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		encoder->setRenderPipelineState(visbuffer_pass.visbuffer_pipeline.get());
 		encoder->setDepthStencilState(visbuffer_pass.depth_state.get());
 
-		auto& sceneDrawBuffers = scene.drawBuffers[frameIndex];
+		auto& sceneDrawBuffers = scene.draw_buffers[frameIndex];
 
 		for (auto& meshes : scene.meshes) {
-			encoder->useResource(meshes.mesh->vertexIndexBuffer.get(), MTL::ResourceUsageRead);
-			encoder->useResource(meshes.mesh->primitiveIndexBuffer.get(), MTL::ResourceUsageRead);
-			encoder->useResource(meshes.mesh->positionBuffer.get(), MTL::ResourceUsageRead);
-			encoder->useResource(meshes.mesh->vertexBuffer.get(), MTL::ResourceUsageRead);
-			encoder->useResource(meshes.mesh->meshletBuffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->vertex_index_buffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->primitive_index_buffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->position_buffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->vertex_buffer.get(), MTL::ResourceUsageRead);
+			encoder->useResource(meshes.mesh->meshlet_buffer.get(), MTL::ResourceUsageRead);
 			for (auto& uv_buffer : meshes.mesh->uv_buffers)
 				if (uv_buffer)
 					encoder->useResource(uv_buffer.get(), MTL::ResourceUsageRead);
 		}
-		resourceTable->encodeUsage(encoder);
+		resource_table->encode_usage(encoder);
 
 		encoder->setObjectBytes(&drawCount, sizeof drawCount, 0);
-		encoder->setObjectBuffer(cameraBuffers[frameIndex].get(), 0, 1);
-		encoder->setObjectBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 2);
-		encoder->setObjectBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 3);
-		encoder->setObjectBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 4);
+		encoder->setObjectBuffer(camera_buffers[frameIndex].get(), 0, 1);
+		encoder->setObjectBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 2);
+		encoder->setObjectBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 3);
+		encoder->setObjectBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 4);
 
-		encoder->setMeshBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
-		encoder->setMeshBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
-		encoder->setMeshBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
-		encoder->setMeshBuffer(cameraBuffers[frameIndex].get(), 0, 3);
-		encoder->setMeshBuffer(materialBuffers[frameIndex].get(), 0, 4);
+		encoder->setMeshBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 0);
+		encoder->setMeshBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 1);
+		encoder->setMeshBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 2);
+		encoder->setMeshBuffer(camera_buffers[frameIndex].get(), 0, 3);
+		encoder->setMeshBuffer(material_buffers[frameIndex].get(), 0, 4);
 
-		encoder->setFragmentBuffer(materialBuffers[frameIndex].get(), 0, 0);
-		encoder->setFragmentBuffer(resourceTable->sampledImageBuffer, 0, 1);
+		encoder->setFragmentBuffer(material_buffers[frameIndex].get(), 0, 0);
+		encoder->setFragmentBuffer(resource_table->sampled_image_buffer, 0, 1);
 
 		// We cull manually per primitive in the mesh shader
 		encoder->setCullMode(MTL::CullModeNone);
@@ -648,12 +648,12 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 
 		encoder->setRenderPipelineState(visbuffer_pass.gbuffer_tile_pipeline.get());
 
-		encoder->setTileBuffer(sceneDrawBuffers.meshletDrawBuffer.get(), 0, 0);
-		encoder->setTileBuffer(sceneDrawBuffers.transformBuffer.get(), 0, 1);
-		encoder->setTileBuffer(sceneDrawBuffers.primitiveBuffer.get(), 0, 2);
-		encoder->setTileBuffer(cameraBuffers[frameIndex].get(), 0, 3);
-		encoder->setTileBuffer(materialBuffers[frameIndex].get(), 0, 4);
-		encoder->setTileBuffer(resourceTable->sampledImageBuffer, 0, 5);
+		encoder->setTileBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 0);
+		encoder->setTileBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 1);
+		encoder->setTileBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 2);
+		encoder->setTileBuffer(camera_buffers[frameIndex].get(), 0, 3);
+		encoder->setTileBuffer(material_buffers[frameIndex].get(), 0, 4);
+		encoder->setTileBuffer(resource_table->sampled_image_buffer, 0, 5);
 
 		encoder->dispatchThreadsPerTile(
 			MTL::Size::Make(encoder->tileHeight(), encoder->tileWidth(), 1));
@@ -694,7 +694,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 
 		encoder->setRenderPipelineState(shading_pass.shading_pass_pipeline.get());
 
-		encoder->setTileBuffer(cameraBuffers[frameIndex].get(), 0, 0);
+		encoder->setTileBuffer(camera_buffers[frameIndex].get(), 0, 0);
 		encoder->setTileTexture(visbuffer_pass.depth_texture.get(), 0);
 
 		encoder->dispatchThreadsPerTile(
@@ -703,7 +703,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 		encoder->endEncoding();
 	}
 
-	imguiRenderer->draw(buffer, drawable, getRenderResolution(), frameIndex, drawCount == 0);
+	imgui_renderer->draw(buffer, drawable, get_render_resolution(), frameIndex, drawCount == 0);
 
 	buffer->presentDrawable(drawable);
 
@@ -713,8 +713,8 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 	// object anymore when this executes.
 	buffer->addCompletedHandler([weak = weak_from_this()](MTL::CommandBuffer* buffer) {
 		ZoneScoped;
-		if (auto renderer = std::dynamic_pointer_cast<MtlRenderer>(weak.lock())) {
-			dispatch_semaphore_signal(renderer->drawSemaphore);
+		if (auto renderer = std::dynamic_pointer_cast<meshlet_renderer>(weak.lock())) {
+			dispatch_semaphore_signal(renderer->draw_semaphore);
 
 			if (buffer->status() == MTL::CommandBufferStatusError) {
 				auto* error = buffer->error();
@@ -732,7 +732,7 @@ bool gmtl::MtlRenderer::draw(std::size_t frameIndex, graphics::Scene& gworld,
 					}
 				}
 
-				renderer->commandBufferException = std::make_exception_ptr(
+				renderer->command_buffer_exception = std::make_exception_ptr(
 						std::runtime_error("Failed to execute command buffer"));
 			}
 		}

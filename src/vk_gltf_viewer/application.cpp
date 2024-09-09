@@ -40,13 +40,13 @@ void glfwResizeCallback(GLFWwindow* window, int width, int height) {
 	ZoneScoped;
 	if (width > 0 && height > 0) {
 		glm::u32vec2 res(width, height);
-		decltype(auto) app = *static_cast<Application*>(glfwGetWindowUserPointer(window));
+		decltype(auto) app = *static_cast<application*>(glfwGetWindowUserPointer(window));
 		app.renderResolution = res;
-		app.renderer->updateResolution(res);
+		app.renderer->update_resolution(res);
 	}
 }
 
-Application::Application(std::span<std::filesystem::path> gltfs) {
+application::application(std::span<std::filesystem::path> gltfs) {
 	ZoneScoped;
 
 	// Initialize GLFW
@@ -54,7 +54,7 @@ Application::Application(std::span<std::filesystem::path> gltfs) {
 	if (glfwInit() != GLFW_TRUE) {
 		throw std::runtime_error("Failed to initialize GLFW");
 	}
-	deletionQueue.push([]() { glfwTerminate(); });
+	deletion_queue.push([]() { glfwTerminate(); });
 
 	// Get the main monitor's video mode
 	auto* mainMonitor = glfwGetPrimaryMonitor();
@@ -70,7 +70,7 @@ Application::Application(std::span<std::filesystem::path> gltfs) {
 		"vk_viewer", nullptr, nullptr);
 	if (window == nullptr)
 		throw std::runtime_error("Failed to create window");
-	deletionQueue.push([this]() { glfwDestroyWindow(window); });
+	deletion_queue.push([this]() { glfwDestroyWindow(window); });
 
 	glfwSetWindowUserPointer(window, this);
 	glfwSetWindowSizeCallback(window, glfwResizeCallback);
@@ -81,24 +81,24 @@ Application::Application(std::span<std::filesystem::path> gltfs) {
 	//ImGui_ImplGlfw_InitForVulkan(window, true);
 	ImGui_ImplGlfw_InitForOther(window, true);
 
-	renderer = graphics::Renderer::createRenderer(window);
-	scene = renderer->createSharedScene();
-	camera = std::make_unique<Camera>();
+	renderer = graphics::renderer::create_renderer(window);
+	scene = renderer->create_shared_scene();
+	camera = std::make_unique<camera_t>();
 
 	for (auto& gltf : gltfs) {
-		auto& task = assetLoadTasks.emplace_back(std::make_shared<AssetLoadTask>(renderer, gltf));
-		taskScheduler.AddTaskSetToPipe(task.get());
+		auto& task = asset_load_tasks.emplace_back(std::make_shared<asset_load_task>(renderer, gltf));
+		task_scheduler.AddTaskSetToPipe(task.get());
 	}
 }
 
-Application::~Application() noexcept {
+application::~application() noexcept {
 	// TODO: is there perhaps some way to detach the tasks, so that we don't lock up
 	//       the application during shutting down?
-	for (auto& task : assetLoadTasks)
-		taskScheduler.WaitforTask(task.get());
+	for (auto& task : asset_load_tasks)
+		task_scheduler.WaitforTask(task.get());
 }
 
-void Application::updateRenderResolution() {
+void application::update_render_resolution() {
 	ZoneScoped;
 	//auto swapchainExtent = toVector(swapchain->swapchain.extent);
 
@@ -120,33 +120,33 @@ void Application::updateRenderResolution() {
 	firstFrame = true; // We need to re-transition the images since they've been recreated.
 }
 
-void Application::addAssetToScene(AssetLoadTask& assetLoadTask) {
+void application::add_asset_to_scene(asset_load_task& task) {
 	ZoneScoped;
-	textures.insert(textures.end(), assetLoadTask.textures.begin(), assetLoadTask.textures.end());
+	textures.insert(textures.end(), task.textures.begin(), task.textures.end());
 
-	fastgltf::iterateSceneNodes(*assetLoadTask.asset, 0, fastgltf::math::fmat4x4(),
+	fastgltf::iterateSceneNodes(*task.asset, 0, fastgltf::math::fmat4x4(),
 								[&](fastgltf::Node& node, const fastgltf::math::fmat4x4& mat) {
 		if (!node.meshIndex.has_value())
 			return;
 
-		auto& mesh = assetLoadTask.meshes[*node.meshIndex];
-		for (auto& idx : mesh.primitiveIndices) {
-			auto instance = scene->addMeshInstance(assetLoadTask.primitives[idx]);
-			scene->updateTransform(instance, glm::make_mat4x4(mat.data()));
+		auto& mesh = task.meshes[*node.meshIndex];
+		for (auto& idx : mesh.primitive_indices) {
+			auto instance = scene->add_mesh_instance(task.primitives[idx]);
+			scene->update_transform(instance, glm::make_mat4x4(mat.data()));
 		}
 	});
 
-	fmt::print("Finished loading asset: {}\n", assetLoadTask.assetPath);
+	fmt::print("Finished loading asset: {}\n", task.asset_path);
     using namespace std::chrono_literals;
 	//std::this_thread::sleep_for(2s);
 }
 
-void Application::run() {
+void application::run() {
 	ZoneScoped;
 
 	std::size_t currentFrame = 0;
 	while (!glfwWindowShouldClose(window)) {
-		if (renderer->canRender()) {
+		if (renderer->can_render()) {
 			ZoneScopedN("glfwPollEvents");
 			glfwPollEvents();
 		} else {
@@ -156,17 +156,15 @@ void Application::run() {
 		}
 
 		// Check if any asset load task has completed, and get the Asset object
-		for (auto& task : assetLoadTasks) {
-			if (task->GetIsComplete()) {
-				if (task->exception)
-					std::rethrow_exception(task->exception);
-				addAssetToScene(*task);
+		for (auto& task : asset_load_tasks) {
+			if (task->GetIsCompleteWithExceptions()) {
+				add_asset_to_scene(*task);
 				//vkQueueWaitIdle(device->graphicsQueue);
 				//world->addAsset(task);
 				task.reset();
 			}
 		}
-		std::erase_if(assetLoadTasks, [](std::shared_ptr<AssetLoadTask>& value) {
+		std::erase_if(asset_load_tasks, [](std::shared_ptr<asset_load_task>& value) {
 			return !bool(value);
 		});
 
@@ -177,13 +175,13 @@ void Application::run() {
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		renderUi();
+		render_ui();
 
-		currentFrame = ++currentFrame % graphics::frameOverlap;
+		currentFrame = ++currentFrame % graphics::frame_overlap;
 
-		renderer->prepareFrame(currentFrame);
+		renderer->prepare_frame(currentFrame);
 
-		camera->updateCamera(window, deltaTime, renderer->getRenderResolution());
+		camera->update(window, deltaTime, renderer->get_render_resolution());
 
 		renderer->draw(currentFrame, *scene, *camera, static_cast<float>(deltaTime));
 
@@ -192,7 +190,7 @@ void Application::run() {
 	}
 }
 
-void Application::renderUi() {
+void application::render_ui() {
 	ZoneScoped;
 	if (ImGui::Begin("vk_gltf_viewer", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
 		if (ImGui::BeginTabBar("#tabbar")) {
@@ -217,7 +215,7 @@ void Application::renderUi() {
 						bool isSelected = mode == scalingMode;
 						if (ImGui::Selectable(name.data(), isSelected)) {
 							scalingMode = mode;
-							updateRenderResolution();
+							update_render_resolution();
 						}
 						if (isSelected)
 							ImGui::SetItemDefaultFocus();
@@ -251,7 +249,7 @@ void Application::renderUi() {
 
 			if (ImGui::BeginTabItem("Debug")) {
 				ImGui::SeparatorText("Camera");
-				auto pos = camera->getPosition();
+				auto pos = camera->get_position();
 				ImGui::Text("Position: <%.2f, %.2f, %.2f>", pos.x, pos.y, pos.z);
 				ImGui::DragFloat("Camera speed multiplier", &camera->speedMultiplier);
 

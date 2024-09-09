@@ -11,95 +11,95 @@
 #include <fastgltf/types.hpp>
 
 namespace graphics {
-	class Renderer;
+	class renderer;
 
 	using index_t = std::uint32_t; // TODO: Support dynamic index bit width?
 
 	/** The amount of frames we render ahead, regardless of what the windowing system or GPU supports */
-	static constexpr std::uint32_t frameOverlap = 3;
+	static constexpr std::uint32_t frame_overlap = 3;
 
-	class Buffer {};
+	class buffer_t {};
 
-	class Sampler {};
-	class Image {};
-	class Texture {
-		shaders::ResourceTableHandle handle = shaders::invalid_handle;
+	class sampler_t {};
+	class image_t {};
+	class texture_t {
+		shaders::resource_table_handle_t handle = shaders::invalid_handle;
 
 	public:
-		explicit Texture(const shaders::ResourceTableHandle handle) noexcept : handle(handle) {}
-		virtual ~Texture() noexcept = default;
+		explicit texture_t(const shaders::resource_table_handle_t handle) noexcept : handle(handle) {}
+		virtual ~texture_t() noexcept = default;
 
-		[[nodiscard]] shaders::ResourceTableHandle getHandle() const noexcept {
+		[[nodiscard]] shaders::resource_table_handle_t get_handle() const noexcept {
 			return handle;
 		}
 	};
 
-	class Mesh {};
+	class mesh_t {};
 
-	using MaterialIndex = std::uint32_t;
-	using InstanceIndex = std::uint32_t;
+	using material_index = std::uint32_t;
+	using instance_index = std::uint32_t;
 
-	class Scene {
+	class scene_t {
 	public:
-		Scene() noexcept = default;
-		virtual ~Scene() noexcept = default;
+		scene_t() noexcept = default;
+		virtual ~scene_t() noexcept = default;
 
-		[[nodiscard]] virtual InstanceIndex addMeshInstance(std::shared_ptr<Mesh> mesh) = 0;
-		virtual void updateTransform(InstanceIndex instance, glm::fmat4x4 transform) = 0;
+		[[nodiscard]] virtual instance_index add_mesh_instance(std::shared_ptr<mesh_t> mesh) = 0;
+		virtual void update_transform(instance_index instance, glm::fmat4x4 transform) = 0;
 	};
 
 	/**
 	 * The abstracted renderer interface.
 	 */
-	class Renderer : public std::enable_shared_from_this<Renderer> {
+	class renderer : public std::enable_shared_from_this<renderer> {
 	public:
-		Renderer() noexcept = default;
-		virtual ~Renderer() noexcept = default;
+		renderer() noexcept = default;
+		virtual ~renderer() noexcept = default;
 
-		[[nodiscard]] static std::shared_ptr<Renderer> createRenderer(GLFWwindow* window);
+		[[nodiscard]] static std::shared_ptr<renderer> create_renderer(GLFWwindow* window);
 
-		[[nodiscard]] virtual std::unique_ptr<Buffer> createUniqueBuffer() = 0;
-		[[nodiscard]] virtual std::shared_ptr<Buffer> createSharedBuffer() = 0;
+		[[nodiscard]] virtual std::unique_ptr<buffer_t> create_unique_buffer() = 0;
+		[[nodiscard]] virtual std::shared_ptr<buffer_t> create_shared_buffer() = 0;
 
-		[[nodiscard]] virtual MaterialIndex getDefaultMaterialIndex() const noexcept {
+		[[nodiscard]] virtual material_index get_default_material_index() const noexcept {
 			return 0;
 		}
-		[[nodiscard]] virtual MaterialIndex createMaterial(shaders::material_t material) = 0;
+		[[nodiscard]] virtual material_index create_material(shaders::material_t material) = 0;
 
-		[[nodiscard]] virtual std::shared_ptr<Mesh> createSharedMesh(
+		[[nodiscard]] virtual std::shared_ptr<mesh_t> create_shared_mesh(
 				std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
 				std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
-				glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
-				MaterialIndex materialIndex) = 0;
+				glm::fvec3 aabb_center, glm::fvec3 aabb_extents,
+				material_index material_index) = 0;
 
-		[[nodiscard]] virtual std::shared_ptr<Scene> createSharedScene() = 0;
+		[[nodiscard]] virtual std::shared_ptr<scene_t> create_shared_scene() = 0;
 
-		[[nodiscard]] virtual std::shared_ptr<Image> createSharedImage(
+		[[nodiscard]] virtual std::shared_ptr<image_t> create_shared_image(
 			std::span<std::byte> imageData, glm::u32vec2 extents) = 0;
 
-		[[nodiscard]] virtual std::shared_ptr<Sampler> getDefaultSampler() = 0;
-		[[nodiscard]] virtual std::shared_ptr<Sampler> createSharedSampler(
+		[[nodiscard]] virtual std::shared_ptr<sampler_t> get_default_sampler() = 0;
+		[[nodiscard]] virtual std::shared_ptr<sampler_t> create_shared_sampler(
 			const fastgltf::Sampler& sampler) = 0; // TODO
 
-		[[nodiscard]] virtual std::shared_ptr<Texture> createSharedTexture(
-			std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) = 0;
+		[[nodiscard]] virtual std::shared_ptr<texture_t> create_shared_texture(
+			std::shared_ptr<image_t> image, std::shared_ptr<sampler_t> sampler) = 0;
 
 		/**
 		 * If this returns false, the window might be minimised or being resized, forcing us to pause rendering shortly.
 		 * In that case, glfwWaitEvents should be used.
 		 */
-		[[nodiscard]] virtual bool canRender() = 0;
+		[[nodiscard]] virtual bool can_render() = 0;
 
-		virtual void updateResolution(glm::u32vec2 resolution) = 0;
+		virtual void update_resolution(glm::u32vec2 resolution) = 0;
 		/**
 		 * Returns the resolution at which this renders the scene. Note that this might not be
 		 * the same resolution the window has, since the renderer might use some upscaling
 		 * technique.
 		 */
-		[[nodiscard]] virtual glm::u32vec2 getRenderResolution() const noexcept = 0;
+		[[nodiscard]] virtual glm::u32vec2 get_render_resolution() const noexcept = 0;
 
-		virtual void prepareFrame(std::size_t frameIndex) = 0;
-		virtual bool draw(std::size_t frameIndex, Scene& scene,
+		virtual void prepare_frame(std::size_t frame_index) = 0;
+		virtual bool draw(std::size_t frame_index, scene_t& scene,
 						  const shaders::camera_t& camera, float dt) = 0;
 	};
 }

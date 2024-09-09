@@ -8,7 +8,7 @@
 
 #import <graphics/mtl_renderer.hpp>
 
-CA::MetalLayer* graphics::metal::createMetalLayer(GLFWwindow* window) {
+CA::MetalLayer* graphics::metal::create_metal_layer(GLFWwindow* window) {
 	ZoneScoped;
 	auto layer = [CAMetalLayer layer];
 

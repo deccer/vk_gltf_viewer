@@ -16,7 +16,7 @@ void gvk::VkScene::updateTransformBuffer(std::size_t frameIndex) {
 	ZoneScoped;
 }
 
-graphics::InstanceIndex gvk::VkScene::addMeshInstance(std::shared_ptr<Mesh> sharedMesh) {
+graphics::instance_index gvk::VkScene::add_mesh_instance(std::shared_ptr<mesh_t> sharedMesh) {
 	ZoneScoped;
 	meshes.emplace_back(std::move(sharedMesh));
 
@@ -25,7 +25,7 @@ graphics::InstanceIndex gvk::VkScene::addMeshInstance(std::shared_ptr<Mesh> shar
 		drawBuffer.isMeshletBufferBuilt = false;
 }
 
-void gvk::VkScene::updateTransform(graphics::InstanceIndex instance, glm::fmat4x4 transform) {
+void gvk::VkScene::update_transform(graphics::instance_index instance, glm::fmat4x4 transform) {
 	ZoneScoped;
 }
 
@@ -36,18 +36,18 @@ void gvk::VkScene::updateDrawBuffers(std::size_t frameIndex, float dt) {
 	updateTransformBuffer(frameIndex);
 }
 
-std::unique_ptr<graphics::Buffer> gvk::VkRenderer::createUniqueBuffer() {
+std::unique_ptr<graphics::buffer_t> gvk::VkRenderer::create_unique_buffer() {
 	ZoneScoped;
 }
 
-std::shared_ptr<graphics::Buffer> gvk::VkRenderer::createSharedBuffer() {
+std::shared_ptr<graphics::buffer_t> gvk::VkRenderer::create_shared_buffer() {
 	ZoneScoped;
 }
 
-std::shared_ptr<graphics::Mesh> gvk::VkRenderer::createSharedMesh(
+std::shared_ptr<graphics::mesh_t> gvk::VkRenderer::create_shared_mesh(
 		std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
 		std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
-		glm::fvec3 aabbCenter, glm::fvec3 aabbExtents, MaterialIndex materialIndex) {
+		glm::fvec3 aabbCenter, glm::fvec3 aabbExtents, material_index materialIndex) {
 	ZoneScoped;
 
 	// Generate the meshlets
@@ -63,14 +63,14 @@ std::shared_ptr<graphics::Mesh> gvk::VkRenderer::createSharedMesh(
 	return std::make_shared<gvk::VkMesh>();
 }
 
-void gvk::VkRenderer::updateResolution(glm::u32vec2 resolution) {
+void gvk::VkRenderer::update_resolution(glm::u32vec2 resolution) {
 	ZoneScoped;
 	swapchain = Swapchain::recreate(std::move(swapchain));
 
 	swapchainNeedsRebuild = false;
 }
 
-void gvk::VkRenderer::prepareFrame(std::size_t frameIndex) {
+void gvk::VkRenderer::prepare_frame(std::size_t frameIndex) {
 	ZoneScoped;
 	auto& syncData = frameSyncData[frameIndex];
 
@@ -85,7 +85,7 @@ void gvk::VkRenderer::prepareFrame(std::size_t frameIndex) {
 	frameCommandPools[frameIndex].commandPool.reset_pool();
 }
 
-bool gvk::VkRenderer::draw(std::size_t frameIndex, graphics::Scene& gscene,
+bool gvk::VkRenderer::draw(std::size_t frameIndex, graphics::scene_t& gscene,
 						   const shaders::camera_t& camera, float dt) {
 	ZoneScoped;
 	auto& scene = dynamic_cast<VkScene&>(gscene);

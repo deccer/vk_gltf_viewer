@@ -35,7 +35,7 @@ namespace graphics::vulkan::imgui {
 gvk::imgui::Renderer::Renderer(Device& _device, GLFWwindow* window, VkFormat swapchainImageFormat) : device(_device) {
 	ZoneScoped;
 	vk::PipelineCacheLoadTask cacheLoadTask(device.get(), &pipelineCache, pipelineCacheFile);
-	taskScheduler.AddTaskSetToPipe(&cacheLoadTask);
+	task_scheduler.AddTaskSetToPipe(&cacheLoadTask);
 
 	VkShaderModule fragmentShader, vertexShader;
 	loadShader(device.get(), ui_frag_glsl, &fragmentShader);
@@ -71,7 +71,7 @@ gvk::imgui::Renderer::Renderer(Device& _device, GLFWwindow* window, VkFormat swa
 	const VkPipelineLayoutCreateInfo layoutCreateInfo {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 1,
-		.pSetLayouts = &device.get().resourceTable->getLayout(),
+		.pSetLayouts = &device.get().resourceTable->get_layout(),
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &pushConstantRange,
 	};
@@ -115,7 +115,7 @@ gvk::imgui::Renderer::Renderer(Device& _device, GLFWwindow* window, VkFormat swa
 	builder.addShaderStage(0, VK_SHADER_STAGE_VERTEX_BIT, vertexShader, "main")
 		.addShaderStage(0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader, "main");
 
-	taskScheduler.WaitforTask(&cacheLoadTask);
+	task_scheduler.WaitforTask(&cacheLoadTask);
 	if (cacheLoadTask.getResult() == VK_SUCCESS) {
 		fmt::print("Successfully created ImGui pipeline cache\n");
 		builder.setPipelineCache(pipelineCache);
@@ -136,7 +136,7 @@ gvk::imgui::Renderer::~Renderer() {
 	vk::PipelineCacheSaveTask cacheSaveTask(device.get(), &pipelineCache, pipelineCacheFile);
 
 	if (volkGetLoadedDevice() != nullptr) {
-		taskScheduler.AddTaskSetToPipe(&cacheSaveTask);
+		task_scheduler.AddTaskSetToPipe(&cacheSaveTask);
 
 		for (auto& buf : buffers) {
 			buf.vertexBuffer.reset();
@@ -156,7 +156,7 @@ gvk::imgui::Renderer::~Renderer() {
 	ImGui::DestroyContext();
 
 	if (volkGetLoadedDevice() != nullptr) {
-		taskScheduler.WaitforTask(&cacheSaveTask);
+		task_scheduler.WaitforTask(&cacheSaveTask);
 		vkDestroyPipelineCache(device.get(), pipelineCache, vk::allocationCallbacks.get());
 	}
 }
@@ -224,7 +224,7 @@ void gvk::imgui::Renderer::createFontAtlas() {
 	};
 	vkCreateImageView(device.get(), &imageViewCreateInfo, vk::allocationCallbacks.get(), &fontAtlasView);
 	vk::setDebugUtilsName(device.get(), fontAtlasView, "ImGui font atlas view");
-	fontAtlasHandle = device.get().resourceTable->allocateSampledImage(fontAtlasView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, fontAtlasSampler);
+	fontAtlasHandle = device.get().resourceTable->allocate_sampled_image(fontAtlasView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, fontAtlasSampler);
 	io.Fonts->SetTexID(fontAtlasHandle);
 
 	auto data = std::span<const std::byte> { reinterpret_cast<std::byte*>(pixels), width * height * sizeof(std::byte) };
@@ -237,7 +237,7 @@ void gvk::imgui::Renderer::createFontAtlas() {
 	}
 
 	device.get().immediateSubmit(device.get().getNextTransferQueueHandle(),
-								 device.get().uploadCommandPools[taskScheduler.GetThreadNum()],
+								 device.get().uploadCommandPools[task_scheduler.GetThreadNum()],
 								 [&](auto cmd) {
 		// Transition the image to TRANSFER_DST_OPTIMAL
 		VkImageMemoryBarrier2 imageBarrier {
@@ -423,7 +423,7 @@ void gvk::imgui::Renderer::draw(VkCommandBuffer commandBuffer, VkImageView swapc
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-	                        0, 1, &device.get().resourceTable->getSet(), 0, nullptr);
+	                        0, 1, &device.get().resourceTable->get_set(), 0, nullptr);
 
 	const auto displaySize = glm::fvec2(drawData->DisplaySize);
 	const auto displayPos = glm::fvec2(drawData->DisplayPos);

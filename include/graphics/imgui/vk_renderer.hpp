@@ -40,7 +40,7 @@ namespace graphics::vulkan::imgui {
 		VkImageView fontAtlasView = VK_NULL_HANDLE;
 		VkSampler fontAtlasSampler = VK_NULL_HANDLE;
 		glm::u32vec2 fontAtlasExtent = {};
-		shaders::ResourceTableHandle fontAtlasHandle = shaders::invalid_handle;
+		shaders::resource_table_handle_t fontAtlasHandle = shaders::invalid_handle;
 
 		VkPipeline pipeline = VK_NULL_HANDLE;
 		VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;

@@ -8,7 +8,7 @@ Swapchain::Swapchain(const Device& _device, VkSurfaceKHR _surface, VkSwapchainKH
 	vkb::SwapchainBuilder builder(device.get().device);
 	auto result = builder
 		.set_old_swapchain(_swapchain)
-		.set_desired_min_image_count(graphics::frameOverlap)
+		.set_desired_min_image_count(graphics::frame_overlap)
 		.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 		.set_desired_format(VkSurfaceFormatKHR {.format = VK_FORMAT_R8G8B8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
 		.build();
@@ -28,13 +28,13 @@ Swapchain::Swapchain(const Device& _device, VkSurfaceKHR _surface, VkSwapchainKH
 	imageViewHandles.reserve(imageViews.size());
 	for (auto& view : imageViews)
 		imageViewHandles.emplace_back(
-			device.get().resourceTable->allocateStorageImage(view, VK_IMAGE_LAYOUT_GENERAL));
+			device.get().resourceTable->allocate_storage_image(view, VK_IMAGE_LAYOUT_GENERAL));
 }
 
 Swapchain::~Swapchain() noexcept {
 	ZoneScoped;
 	for (auto& handle : imageViewHandles)
-		device.get().resourceTable->removeStorageImageHandle(handle);
+		device.get().resourceTable->remove_storage_image_handle(handle);
 	for (auto& view : imageViews)
 		vkDestroyImageView(device.get(), view, vk::allocationCallbacks.get());
 	vkb::destroy_swapchain(swapchain);

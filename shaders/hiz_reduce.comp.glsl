@@ -9,8 +9,8 @@
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 struct HiZReducePushConstants {
-	ResourceTableHandle sourceImage;
-	ResourceTableHandle outputImage;
+	resource_table_handle_t sourceImage;
+	resource_table_handle_t outputImage;
 	uvec2 imageSize;
 };
 

@@ -83,11 +83,11 @@ void generateCameraFrustum(const glm::mat4x4& vp, std::array<glm::vec4, 6>& frus
 	}
 }
 
-Camera::Camera() = default;
+camera_t::camera_t() = default;
 
-Camera::~Camera() noexcept = default;
+camera_t::~camera_t() noexcept = default;
 
-void Camera::updateCamera(GLFWwindow* window, double deltaTime, glm::u32vec2 framebufferExtent) {
+void camera_t::update(GLFWwindow* window, double deltaTime, glm::u32vec2 framebufferExtent) {
 	// Update the acceleration vector based on keyboard input
 	{
 		auto& acc = accelerationVector;
@@ -99,16 +99,16 @@ void Camera::updateCamera(GLFWwindow* window, double deltaTime, glm::u32vec2 fra
 			acc -= direction;
 		}
 		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-			acc += glm::normalize(glm::cross(direction, cameraUp));
+			acc += glm::normalize(glm::cross(direction, camera_up));
 		}
 		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-			acc -= glm::normalize(glm::cross(direction, cameraUp));
+			acc -= glm::normalize(glm::cross(direction, camera_up));
 		}
 		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-			acc += cameraUp;
+			acc += camera_up;
 		}
 		if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
-			acc -= cameraUp;
+			acc -= camera_up;
 		}
 	}
 
@@ -147,7 +147,7 @@ void Camera::updateCamera(GLFWwindow* window, double deltaTime, glm::u32vec2 fra
 	// Add the velocity into the position
 	position += velocity * float(deltaTime);
 
-	auto view = glm::lookAtRH(position, position + direction, cameraUp);
+	auto view = glm::lookAtRH(position, position + direction, camera_up);
 
 	// glm::perspectiveRH_ZO is correct, see https://johannesugb.github.io/gpu-programming/setting-up-a-proper-vulkan-projection-matrix/
 	static constexpr auto zNear = 0.1f;

@@ -13,99 +13,99 @@
 #include <graphics/imgui/mtl_renderer.hpp>
 
 namespace graphics::metal {
-class MtlRenderer;
+class meshlet_renderer;
 
-class MtlBuffer : public graphics::Buffer {
-	friend MtlRenderer;
+class mtl_buffer : public graphics::buffer_t {
+	friend meshlet_renderer;
 	MTL::Buffer* buffer = nullptr;
 
 public:
-	explicit MtlBuffer() = default;
-	~MtlBuffer() noexcept = default;
+	explicit mtl_buffer() = default;
+	~mtl_buffer() noexcept = default;
 };
 
-class MtlSampler final : public Sampler, public NS::SharedPtr<MTL::SamplerState> {
+class mtl_sampler final : public sampler_t, public NS::SharedPtr<MTL::SamplerState> {
 public:
-	explicit MtlSampler(MTL::SamplerState* sampler)
+	explicit mtl_sampler(MTL::SamplerState* sampler)
 			: NS::SharedPtr<MTL::SamplerState>(NS::TransferPtr(sampler)) {}
 };
 
-class MtlImage final : public Image, public NS::SharedPtr<MTL::Texture> {
+class mtl_image final : public image_t, public NS::SharedPtr<MTL::Texture> {
 public:
-	explicit MtlImage(MTL::Texture* texture)
+	explicit mtl_image(MTL::Texture* texture)
 			: NS::SharedPtr<MTL::Texture>(NS::TransferPtr(texture)) {}
 };
 
-class MtlTexture final : public Texture {
-	std::shared_ptr<MtlResourceTable> resourceTable;
-	std::shared_ptr<MtlImage> image;
-	std::shared_ptr<MtlSampler> sampler;
+class mtl_texture final : public texture_t {
+	std::shared_ptr<mtl_resource_table> resource_table;
+	std::shared_ptr<mtl_image> image;
+	std::shared_ptr<mtl_sampler> sampler;
 
 public:
-	explicit MtlTexture(std::shared_ptr<MtlResourceTable> resourceTable, std::shared_ptr<MtlImage> image, std::shared_ptr<MtlSampler> sampler)
-			: Texture(resourceTable->allocateSampledImage(*image.get(), *sampler.get())), resourceTable(std::move(resourceTable)), image(std::move(image)), sampler(std::move(sampler)) {}
-	~MtlTexture() override {
-		resourceTable->removeSampledImageHandle(getHandle());
+	explicit mtl_texture(std::shared_ptr<mtl_resource_table> resourceTable, std::shared_ptr<mtl_image> image, std::shared_ptr<mtl_sampler> sampler)
+			: texture_t(resourceTable->allocate_sampled_image(*image.get(), *sampler.get())), resource_table(std::move(resourceTable)), image(std::move(image)), sampler(std::move(sampler)) {}
+	~mtl_texture() override {
+		resource_table->remove_sampled_image_handle(get_handle());
 	}
 };
 
-class MeshletMesh : public graphics::Mesh {
+class meshlet_mesh : public graphics::mesh_t {
 public:
-	NS::SharedPtr<MTL::Buffer> vertexIndexBuffer;
-	NS::SharedPtr<MTL::Buffer> primitiveIndexBuffer;
-	NS::SharedPtr<MTL::Buffer> meshletBuffer;
-	NS::SharedPtr<MTL::Buffer> positionBuffer;
-	NS::SharedPtr<MTL::Buffer> vertexBuffer;
+	NS::SharedPtr<MTL::Buffer> vertex_index_buffer;
+	NS::SharedPtr<MTL::Buffer> primitive_index_buffer;
+	NS::SharedPtr<MTL::Buffer> meshlet_buffer;
+	NS::SharedPtr<MTL::Buffer> position_buffer;
+	NS::SharedPtr<MTL::Buffer> vertex_buffer;
 	std::array<NS::SharedPtr<MTL::Buffer>, shaders::max_uv_sets> uv_buffers;
 
-	glm::fvec3 aabbExtents;
-	glm::fvec3 aabbCenter;
+	glm::fvec3 aabb_extents;
+	glm::fvec3 aabb_center;
 
-	std::uint32_t meshletCount;
-	std::uint32_t materialIndex;
+	std::uint32_t meshlet_count;
+	std::uint32_t material_index;
 
-	explicit MeshletMesh() = default;
-	~MeshletMesh() noexcept = default;
+	explicit meshlet_mesh() = default;
+	~meshlet_mesh() noexcept = default;
 };
 
-struct MeshletSceneMesh {
-	std::shared_ptr<MeshletMesh> mesh;
+struct meshlet_scene_mesh {
+	std::shared_ptr<meshlet_mesh> mesh;
 	shaders::primitive_t primitive;
 
-	explicit MeshletSceneMesh(std::shared_ptr<MeshletMesh> mesh, shaders::primitive_t primitive)
+	explicit meshlet_scene_mesh(std::shared_ptr<meshlet_mesh> mesh, shaders::primitive_t primitive)
 			: mesh(std::move(mesh)), primitive(primitive) {}
-	MeshletSceneMesh(MeshletSceneMesh&& other) noexcept
+	meshlet_scene_mesh(meshlet_scene_mesh&& other) noexcept
 			: mesh(std::move(other.mesh)), primitive(other.primitive) {}
 };
 
-struct MeshletDrawBuffers {
-	NS::SharedPtr<MTL::Buffer> primitiveBuffer;
-	NS::SharedPtr<MTL::Buffer> meshletDrawBuffer;
-	NS::SharedPtr<MTL::Buffer> transformBuffer;
+struct meshlet_draw_buffers {
+	NS::SharedPtr<MTL::Buffer> primitive_buffer;
+	NS::SharedPtr<MTL::Buffer> meshlet_draw_buffer;
+	NS::SharedPtr<MTL::Buffer> transform_buffer;
 };
 
-class MeshletScene : public graphics::Scene {
+class meshlet_scene : public graphics::scene_t {
 public:
 	NS::SharedPtr<MTL::Device> device;
 
-	std::vector<MeshletSceneMesh> meshes;
+	std::vector<meshlet_scene_mesh> meshes;
 	std::vector<shaders::primitive_transform_t> transforms;
-	std::vector<shaders::meshlet_draw_t> meshletDraws;
+	std::vector<shaders::meshlet_draw_t> meshlet_draws;
 
-	std::vector<MeshletDrawBuffers> drawBuffers;
+	std::vector<meshlet_draw_buffers> draw_buffers;
 
-	explicit MeshletScene(NS::SharedPtr<MTL::Device> device, std::size_t frameOverlap) : device(std::move(device)) {
-		drawBuffers.resize(frameOverlap);
+	explicit meshlet_scene(NS::SharedPtr<MTL::Device> device, std::size_t frame_overlap) : device(std::move(device)) {
+		draw_buffers.resize(frame_overlap);
 	}
-	~MeshletScene() noexcept override = default;
+	~meshlet_scene() noexcept override = default;
 
-	InstanceIndex addMeshInstance(std::shared_ptr<Mesh> mesh) override;
-	void updateTransform(InstanceIndex instance, glm::fmat4x4 transform) override;
+	instance_index add_mesh_instance(std::shared_ptr<mesh_t> mesh) override;
+	void update_transform(instance_index instance, glm::fmat4x4 transform) override;
 
-	void updateDrawBuffers(std::size_t frameIndex);
+	void update_draw_buffers(std::size_t frame_index);
 };
 
-CA::MetalLayer* createMetalLayer(GLFWwindow* window);
+CA::MetalLayer* create_metal_layer(GLFWwindow* window);
 
 struct visbuffer_pass {
 	NS::SharedPtr<MTL::RenderPipelineState> visbuffer_pipeline;
@@ -117,19 +117,19 @@ struct visbuffer_pass {
 	NS::SharedPtr<MTL::Texture> metallic_roughness_texture;
 	NS::SharedPtr<MTL::Texture> depth_texture;
 
-	void init_pass(MtlRenderer& renderer);
-	void update_resolution(MtlRenderer& renderer);
+	void init_pass(meshlet_renderer& renderer);
+	void update_resolution(meshlet_renderer& renderer);
 };
 
 struct shading_pass {
 	NS::SharedPtr<MTL::RenderPipelineState> shading_pass_pipeline;
 
-	void init_pass(MtlRenderer& renderer);
-	void update_resolution(MtlRenderer& renderer);
+	void init_pass(meshlet_renderer& renderer);
+	void update_resolution(meshlet_renderer& renderer);
 };
 
-class MtlRenderer : public graphics::Renderer {
-	friend std::shared_ptr<Renderer> graphics::Renderer::createRenderer(GLFWwindow* window);
+class meshlet_renderer : public graphics::renderer {
+	friend std::shared_ptr<renderer> graphics::renderer::create_renderer(GLFWwindow* window);
 	friend visbuffer_pass;
 	friend shading_pass;
 
@@ -139,61 +139,61 @@ class MtlRenderer : public graphics::Renderer {
 	NS::SharedPtr<MTL::Device> device;
 
 	CA::MetalLayer* layer;
-	NS::SharedPtr<MTL::CommandQueue> commandQueue;
-	dispatch_semaphore_t drawSemaphore;
-	std::exception_ptr commandBufferException;
+	NS::SharedPtr<MTL::CommandQueue> command_queue;
+	dispatch_semaphore_t draw_semaphore;
+	std::exception_ptr command_buffer_exception;
 
-	std::shared_ptr<MtlResourceTable> resourceTable;
+	std::shared_ptr<mtl_resource_table> resource_table;
 
-	NS::SharedPtr<MTL::Library> globalLibrary;
+	NS::SharedPtr<MTL::Library> global_library;
 
-	std::unique_ptr<imgui::Renderer> imguiRenderer;
+	std::unique_ptr<imgui::imgui_renderer> imgui_renderer;
 
-	std::vector<NS::SharedPtr<MTL::Buffer>> cameraBuffers;
+	std::vector<NS::SharedPtr<MTL::Buffer>> camera_buffers;
 
 	std::vector<shaders::material_t> materials;
-	std::vector<NS::SharedPtr<MTL::Buffer>> materialBuffers;
+	std::vector<NS::SharedPtr<MTL::Buffer>> material_buffers;
 
-	std::shared_ptr<MtlSampler> defaultSampler;
+	std::shared_ptr<mtl_sampler> default_sampler;
 
 	visbuffer_pass visbuffer_pass;
 	shading_pass shading_pass;
 
 public:
-	explicit MtlRenderer(GLFWwindow* window);
-	~MtlRenderer() noexcept override;
+	explicit meshlet_renderer(GLFWwindow* window);
+	~meshlet_renderer() noexcept override;
 
-	std::unique_ptr<Buffer> createUniqueBuffer() override;
-	std::shared_ptr<Buffer> createSharedBuffer() override;
+	std::unique_ptr<buffer_t> create_unique_buffer() override;
+	std::shared_ptr<buffer_t> create_shared_buffer() override;
 
-	MaterialIndex createMaterial(shaders::material_t material) override;
+	material_index create_material(shaders::material_t material) override;
 
-	std::shared_ptr<Mesh> createSharedMesh(
-				std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
-				std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
-			glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
-			MaterialIndex materialIndex) override;
+	std::shared_ptr<mesh_t> create_shared_mesh(
+		std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
+		std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
+		glm::fvec3 aabb_center, glm::fvec3 aabb_extents,
+		material_index material_index) override;
 
-	std::shared_ptr<Scene> createSharedScene() override;
+	std::shared_ptr<scene_t> create_shared_scene() override;
 
-	std::shared_ptr<Image> createSharedImage(
+	std::shared_ptr<image_t> create_shared_image(
 		std::span<std::byte> imageData, glm::u32vec2 extents) override;
 
-	std::shared_ptr<Sampler> getDefaultSampler() override;
-	std::shared_ptr<Sampler> createSharedSampler(
+	std::shared_ptr<sampler_t> get_default_sampler() override;
+	std::shared_ptr<sampler_t> create_shared_sampler(
 		const fastgltf::Sampler& sampler) override;
-	std::shared_ptr<Texture> createSharedTexture(
-		std::shared_ptr<Image> image, std::shared_ptr<Sampler> sampler) override;
+	std::shared_ptr<texture_t> create_shared_texture(
+		std::shared_ptr<image_t> image, std::shared_ptr<sampler_t> sampler) override;
 
-	bool canRender() override {
+	bool can_render() override {
 		return true; // TODO: Detect window being minimized or sth
 	}
 
-	void updateResolution(glm::u32vec2 resolution) override;
-	auto getRenderResolution() const noexcept -> glm::u32vec2 override;
+	void update_resolution(glm::u32vec2 resolution) override;
+	auto get_render_resolution() const noexcept -> glm::u32vec2 override;
 
-	void prepareFrame(std::size_t frameIndex) override;
-	bool draw(std::size_t frameIndex, Scene& world,
+	void prepare_frame(std::size_t frame_index) override;
+	bool draw(std::size_t frame_index, scene_t& world,
 			  const shaders::camera_t& camera, float dt) override;
 };
 }

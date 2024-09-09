@@ -31,7 +31,7 @@ struct UiPushConstants {
 	packed_fvec2 scale;
 	packed_fvec2 translate;
 	BUFFER_REF(Vertices, ImDrawVert) vertices MEMBER_INIT(0);
-	ResourceTableHandle imageIndex MEMBER_INIT(invalid_handle);
+	resource_table_handle_t imageIndex MEMBER_INIT(invalid_handle);
 };
 
 struct FragmentInput {

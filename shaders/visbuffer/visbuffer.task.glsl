@@ -20,7 +20,7 @@ layout(push_constant, scalar) readonly uniform PushConstants {
 	VisbufferPushConstants pushConstants;
 };
 
-taskPayloadSharedEXT TaskPayload taskPayload;
+taskPayloadSharedEXT task_payload_t taskPayload;
 
 void main() {
 	// Every task shader workgroup only gets 128 meshlets to handle. This calculates how many
@@ -44,7 +44,7 @@ void main() {
 		restrict const meshlet_draw_t draw = pushConstants.drawBuffer.draws[baseId + idx];
 		const mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transform_index];
 		restrict primitive_t primitive = pushConstants.primitiveBuffer.primitives[draw.primitive_index];
-		restrict const Meshlet meshlet = primitive.meshlet_buffer.meshlets[draw.meshlet_index];
+		restrict const meshlet_t meshlet = primitive.meshlet_buffer.meshlets[draw.meshlet_index];
 
 		// Frustum culling
 		const vec3 worldAabbCenter = (transformMatrix * vec4(meshlet.aabb_center, 1.0f)).xyz;

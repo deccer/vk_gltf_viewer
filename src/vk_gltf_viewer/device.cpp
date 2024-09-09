@@ -227,7 +227,7 @@ Device::Device(const Instance& instance, VkSurfaceKHR surface) {
 	dlss::initSdk(instance, *this);
 #endif
 
-	resourceTable = std::make_unique<graphics::vulkan::VkResourceTable>(*this);
+	resourceTable = std::make_unique<graphics::vulkan::vk_resource_table>(*this);
 
 	// Create the VMA allocator
 	const VmaVulkanFunctions vmaFunctions {
@@ -284,7 +284,7 @@ Device::Device(const Instance& instance, VkSurfaceKHR surface) {
 	globalFencePool.init(device);
 
 	// Create the command pools for the transfer queues
-	uploadCommandPools.resize(taskScheduler.GetNumTaskThreads());
+	uploadCommandPools.resize(task_scheduler.GetNumTaskThreads());
 	for (auto& pool : uploadCommandPools)
 		pool.create(device, transferQueueFamily);
 }

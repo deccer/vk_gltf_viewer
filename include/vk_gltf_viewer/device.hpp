@@ -51,7 +51,7 @@ struct Device {
 	/** A timeline deletion queue for the frame rendering */
 	std::unique_ptr<TimelineDeletionQueue> timelineDeletionQueue;
 
-	std::unique_ptr<graphics::vulkan::VkResourceTable> resourceTable;
+	std::unique_ptr<graphics::vulkan::vk_resource_table> resourceTable;
 
 	/** The main graphics & present queue */
 	std::uint32_t graphicsQueueFamily = VK_QUEUE_FAMILY_IGNORED;

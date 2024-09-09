@@ -19,7 +19,7 @@
 #include <graphics/renderer.hpp>
 
 namespace graphics::vulkan {
-struct VkMesh : graphics::Mesh {
+struct VkMesh : graphics::mesh_t {
 	/** The buffer handles corresponding to the buffers in each shaders::Primitive. */
 	std::unique_ptr<ScopedBuffer> vertexIndexBuffer;
 	std::unique_ptr<ScopedBuffer> primitiveIndexBuffer;
@@ -39,8 +39,8 @@ struct DrawBuffers {
 	std::unique_ptr<ScopedBuffer> transformBuffer;
 };
 
-class VkScene : graphics::Scene {
-	std::vector<std::shared_ptr<Mesh>> meshes;
+class VkScene : graphics::scene_t {
+	std::vector<std::shared_ptr<mesh_t>> meshes;
 	std::unique_ptr<ScopedBuffer> primitiveBuffer;
 	std::unique_ptr<ScopedBuffer> materialBuffer;
 
@@ -50,8 +50,8 @@ class VkScene : graphics::Scene {
 	void updateTransformBuffer(std::size_t frameIndex);
 
 public:
-	InstanceIndex addMeshInstance(std::shared_ptr<Mesh> mesh) override;
-	void updateTransform(InstanceIndex instance, glm::fmat4x4 transform) override;
+	instance_index add_mesh_instance(std::shared_ptr<mesh_t> mesh) override;
+	void update_transform(instance_index instance, glm::fmat4x4 transform) override;
 
 	void updateDrawBuffers(std::size_t frameIndex, float dt);
 };
@@ -76,8 +76,8 @@ enum class ResolutionScalingModes {
 #endif
 };
 
-class VkRenderer : public graphics::Renderer {
-	friend std::shared_ptr<Renderer> graphics::Renderer::createRenderer(GLFWwindow* window);
+class VkRenderer : public graphics::renderer {
+	friend std::shared_ptr<renderer> graphics::renderer::create_renderer(GLFWwindow* window);
 
 	std::unique_ptr<Instance> instance;
 	std::unique_ptr<Device> device;
@@ -100,22 +100,22 @@ class VkRenderer : public graphics::Renderer {
 	bool swapchainNeedsRebuild = false;
 
 public:
-	std::unique_ptr<Buffer> createUniqueBuffer() override;
-	std::shared_ptr<Buffer> createSharedBuffer() override;
+	std::unique_ptr<buffer_t> create_unique_buffer() override;
+	std::shared_ptr<buffer_t> create_shared_buffer() override;
 
-	std::shared_ptr<Mesh> createSharedMesh(
+	std::shared_ptr<mesh_t> create_shared_mesh(
 			std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices,
 			std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs, std::span<const index_t> indices,
 			glm::fvec3 aabbCenter, glm::fvec3 aabbExtents,
-			MaterialIndex materialIndex) override;
+			material_index materialIndex) override;
 
-	bool canRender() override {
+	bool can_render() override {
 		return !swapchainNeedsRebuild;
 	}
 
-	void updateResolution(glm::u32vec2 resolution) override;
+	void update_resolution(glm::u32vec2 resolution) override;
 
-	void prepareFrame(std::size_t frameIndex) override;
-	bool draw(std::size_t frameIndex, Scene& world, const shaders::camera_t& camera, float dt) override;
+	void prepare_frame(std::size_t frameIndex) override;
+	bool draw(std::size_t frameIndex, scene_t& world, const shaders::camera_t& camera, float dt) override;
 };
 } // namespace graphics::vulkan

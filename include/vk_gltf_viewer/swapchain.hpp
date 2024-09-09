@@ -18,7 +18,7 @@ struct Swapchain {
 
 	std::vector<VkImage> images;
 	std::vector<VkImageView> imageViews;
-	std::vector<shaders::ResourceTableHandle> imageViewHandles;
+	std::vector<shaders::resource_table_handle_t> imageViewHandles;
 
 	std::reference_wrapper<const Device> device;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;

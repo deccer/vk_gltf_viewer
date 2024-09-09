@@ -28,57 +28,56 @@ namespace std {
 }
 
 namespace graphics {
-	class ResourceTable {
+	class resource_table {
 	protected:
 		/** Each bit of each integer represents a boolean whether that array element is free or not */
-		std::vector<std::uint64_t> sampledImageBitmap;
-		std::vector<std::uint64_t> storageImageBitmap;
-		std::mutex bitmapMutex;
+		std::vector<std::uint64_t> sampled_image_bitmap;
+		std::mutex bitmap_mutex;
 
-		shaders::ResourceTableHandle findFirstFreeHandle(std::vector<std::uint64_t> &bitmap);
+		shaders::resource_table_handle_t find_first_free_handle(std::vector<std::uint64_t> &bitmap);
 
-		void freeHandle(std::vector<std::uint64_t> &bitmap, shaders::ResourceTableHandle handle);
+		void free_handle(std::vector<std::uint64_t> &bitmap, shaders::resource_table_handle_t handle);
 
 	public:
-		explicit ResourceTable() = default;
-		virtual ~ResourceTable() noexcept = default;
+		explicit resource_table() = default;
+		virtual ~resource_table() noexcept = default;
 
-		virtual void removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept;
+		virtual void remove_sampled_image_handle(shaders::resource_table_handle_t handle) noexcept;
 	};
 
 	namespace vulkan {
-		class VkResourceTable : public ResourceTable {
+		class vk_resource_table : public resource_table {
 			std::reference_wrapper<Device> device;
 
-			std::vector<std::uint64_t> storageImageBitmap;
+			std::vector<std::uint64_t> storage_image_bitmap;
 
 			VkDescriptorPool pool = VK_NULL_HANDLE;
 			VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 			VkDescriptorSet set = VK_NULL_HANDLE;
 
 		public:
-			explicit VkResourceTable(Device& device);
-			~VkResourceTable() noexcept override;
+			explicit vk_resource_table(Device& device);
+			~vk_resource_table() noexcept override;
 
-			[[nodiscard]] auto getLayout() const noexcept -> const VkDescriptorSetLayout& {
+			[[nodiscard]] auto get_layout() const noexcept -> const VkDescriptorSetLayout& {
 				return layout;
 			}
 
-			[[nodiscard]] auto getSet() const noexcept -> const VkDescriptorSet& {
+			[[nodiscard]] auto get_set() const noexcept -> const VkDescriptorSet& {
 				return set;
 			}
 
-			[[nodiscard]] shaders::ResourceTableHandle allocateStorageImage(VkImageView view, VkImageLayout imageLayout) noexcept;
-			[[nodiscard]] shaders::ResourceTableHandle allocateSampledImage(VkImageView view, VkImageLayout imageLayout, VkSampler sampler) noexcept;
+			[[nodiscard]] shaders::resource_table_handle_t allocate_storage_image(VkImageView view, VkImageLayout imageLayout) noexcept;
+			[[nodiscard]] shaders::resource_table_handle_t allocate_sampled_image(VkImageView view, VkImageLayout imageLayout, VkSampler sampler) noexcept;
 
-			void removeStorageImageHandle(shaders::ResourceTableHandle handle) noexcept;
+			void remove_storage_image_handle(shaders::resource_table_handle_t handle) noexcept;
 		};
 	}
 
 #if defined(VKV_METAL)
 	namespace metal {
-		class MtlResourceTable : public ResourceTable {
-			struct SampledTextureEntry {
+		class mtl_resource_table : public resource_table {
+			struct sampled_texture_entry {
 				MTL::ResourceID tex;
 				MTL::ResourceID sampler;
 			};
@@ -86,21 +85,21 @@ namespace graphics {
 			NS::SharedPtr<MTL::Device> device;
 
 			/** List of resources to make resident */
-			std::unordered_map<shaders::ResourceTableHandle, NS::SharedPtr<MTL::Resource>> resources;
+			std::unordered_map<shaders::resource_table_handle_t, NS::SharedPtr<MTL::Resource>> resources;
 
 		public:
-			MTL::Buffer* sampledImageBuffer = nullptr;
+			MTL::Buffer* sampled_image_buffer = nullptr;
 
 		public:
-			explicit MtlResourceTable(NS::SharedPtr<MTL::Device> device);
-			~MtlResourceTable() noexcept override;
+			explicit mtl_resource_table(NS::SharedPtr<MTL::Device> device);
+			~mtl_resource_table() noexcept override;
 
-			[[nodiscard]] shaders::ResourceTableHandle allocateSampledImage(NS::SharedPtr<MTL::Texture> texture, NS::SharedPtr<MTL::SamplerState> sampler) noexcept;
+			[[nodiscard]] shaders::resource_table_handle_t allocate_sampled_image(NS::SharedPtr<MTL::Texture> texture, NS::SharedPtr<MTL::SamplerState> sampler) noexcept;
 
-			void removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept override;
+			void remove_sampled_image_handle(shaders::resource_table_handle_t handle) noexcept override;
 
 			template <typename T>
-			void encodeUsage(T* encoder) {
+			void encode_usage(T* encoder) {
 				ZoneScoped;
 				for (auto& [_, resource] : resources) {
 					assert(resource.get() != nullptr);

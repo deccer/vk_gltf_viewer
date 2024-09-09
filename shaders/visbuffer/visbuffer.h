@@ -44,12 +44,12 @@ struct VisbufferPushConstants {
 	BUFFER_REF(camera_ref, camera_t) cameraBuffer MEMBER_INIT(0);
 	BUFFER_REF(materials_ref, material_t) materialBuffer MEMBER_INIT(0);
 
-	ResourceTableHandle depthPyramid MEMBER_INIT(invalid_handle);
+	resource_table_handle_t depthPyramid MEMBER_INIT(invalid_handle);
 };
 
 struct VisbufferResolvePushConstants {
-	ResourceTableHandle visbufferHandle MEMBER_INIT(invalid_handle);
-	ResourceTableHandle outputImageHandle MEMBER_INIT(invalid_handle);
+	resource_table_handle_t visbufferHandle MEMBER_INIT(invalid_handle);
+	resource_table_handle_t outputImageHandle MEMBER_INIT(invalid_handle);
 
 	BUFFER_REF(meshlet_draws_ref, meshlet_draw_t) drawBuffer MEMBER_INIT(0);
 	BUFFER_REF(primitives_ref, primitive_t) primitiveBuffer MEMBER_INIT(0);

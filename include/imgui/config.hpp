@@ -7,7 +7,7 @@
 
 #include <glm/glm.hpp>
 
-// This needs to stay the same size as shaders::ResourceTableHandle
+// This needs to stay the same size as shaders::resource_table_handle_t
 #define ImTextureID std::uint32_t
 
 #define IMGUI_INCLUDE_IMGUI_USER_H

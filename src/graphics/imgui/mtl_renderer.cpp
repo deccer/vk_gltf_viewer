@@ -17,8 +17,8 @@
 
 namespace gmtl = graphics::metal;
 
-gmtl::imgui::Renderer::Renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPtr<MTL::Library> globalLibrary, std::shared_ptr<MtlResourceTable> nResourceTable, MTL::PixelFormat imageFormat)
-		: device(std::move(nDevice)), resourceTable(std::move(nResourceTable)) {
+gmtl::imgui::imgui_renderer::imgui_renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPtr<MTL::Library> globalLibrary, std::shared_ptr<mtl_resource_table> nResourceTable, MTL::PixelFormat imageFormat)
+		: device(std::move(nDevice)), resource_table(std::move(nResourceTable)) {
 	ZoneScoped;
 	auto* vertexFunction = globalLibrary->newFunction(NS::String::string("ui_vert", NS::UTF8StringEncoding))->autorelease();
 	auto* fragmentFunction = globalLibrary->newFunction(NS::String::string("ui_frag", NS::UTF8StringEncoding))->autorelease();
@@ -39,8 +39,8 @@ gmtl::imgui::Renderer::Renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPt
 	colorAttachment->setDestinationAlphaBlendFactor(MTL::BlendFactorOneMinusSourceAlpha);
 
 	NS::Error* error = nullptr;
-	pipelineState = device->newRenderPipelineState(pipelineDescriptor, &error);
-	if (!pipelineState) {
+	pipeline_state = device->newRenderPipelineState(pipelineDescriptor, &error);
+	if (!pipeline_state) {
 		fmt::print("{}", error->localizedDescription()->utf8String());
 	}
 
@@ -68,36 +68,36 @@ gmtl::imgui::Renderer::Renderer(NS::SharedPtr<MTL::Device> nDevice, NS::SharedPt
 		.alpha = MTL::TextureSwizzleAlpha,
 	});
 
-	fontAtlas = NS::TransferPtr(device->newTexture(desc));
+	font_atlas = NS::TransferPtr(device->newTexture(desc));
 
-	fontAtlas->replaceRegion(MTL::Region::Make2D(0, 0, width, height), 0, pixels, width);
+	font_atlas->replaceRegion(MTL::Region::Make2D(0, 0, width, height), 0, pixels, width);
 
 	auto* samplerDescriptor = MTL::SamplerDescriptor::alloc()->init()->autorelease();
 	samplerDescriptor->setMinFilter(MTL::SamplerMinMagFilterLinear);
 	samplerDescriptor->setMagFilter(MTL::SamplerMinMagFilterLinear);
-	fontAtlasSampler = NS::TransferPtr(device->newSamplerState(samplerDescriptor));
+	font_atlas_sampler = NS::TransferPtr(device->newSamplerState(samplerDescriptor));
 
-	fontAtlasHandle = resourceTable->allocateSampledImage(fontAtlas, fontAtlasSampler);
-	io.Fonts->SetTexID(fontAtlasHandle);
+	font_atlas_handle = resource_table->allocate_sampled_image(font_atlas, font_atlas_sampler);
+	io.Fonts->SetTexID(font_atlas_handle);
 
-	buffers.resize(frameOverlap);
+	buffers.resize(frame_overlap);
 }
 
-gmtl::imgui::Renderer::~Renderer() noexcept {
+gmtl::imgui::imgui_renderer::~imgui_renderer() noexcept {
 	ZoneScoped;
-	pipelineState->release();
-	resourceTable->removeSampledImageHandle(fontAtlasHandle);
+	pipeline_state->release();
+	resource_table->remove_sampled_image_handle(font_atlas_handle);
 }
 
-void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDrawable* drawable,
-								 glm::u32vec2 framebufferSize, std::size_t frameIndex, bool clearDrawable) {
+void gmtl::imgui::imgui_renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDrawable* drawable,
+								 glm::u32vec2 framebuffer_size, std::size_t frame_index, bool clear_drawable) {
 	ZoneScoped;
 	auto* drawData = ImGui::GetDrawData();
 
 	if (drawData->TotalVtxCount <= 0)
 		return;
 
-	auto& frameBuffers = buffers[frameIndex];
+	auto& frameBuffers = buffers[frame_index];
 	auto commandLists = std::span(drawData->CmdLists.Data, drawData->CmdLists.Size);
 
 	const std::size_t vertexBufferSize = drawData->TotalVtxCount * sizeof(ImDrawVert);
@@ -143,17 +143,17 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 	auto* renderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init()->autorelease();
 	auto* colorAttachment = renderPassDescriptor->colorAttachments()->object(0);
 	colorAttachment->init();
-	colorAttachment->setLoadAction(clearDrawable ? MTL::LoadActionClear : MTL::LoadActionLoad);
+	colorAttachment->setLoadAction(clear_drawable ? MTL::LoadActionClear : MTL::LoadActionLoad);
 	colorAttachment->setStoreAction(MTL::StoreActionStore);
 	colorAttachment->setClearColor(MTL::ClearColor::Make(0.f, 0.f, 0.f, 1.f));
 	colorAttachment->setTexture(drawable->texture());
 
 	auto* pass = commandBuffer->renderCommandEncoder(renderPassDescriptor);
 	pass->setLabel(MTLSTR("ImGui"));
-	pass->setRenderPipelineState(pipelineState);
+	pass->setRenderPipelineState(pipeline_state);
 
-	pass->setFragmentBuffer(resourceTable->sampledImageBuffer, 0, 1);
-	resourceTable->encodeUsage(pass);
+	pass->setFragmentBuffer(resource_table->sampled_image_buffer, 0, 1);
+	resource_table->encode_usage(pass);
 
 	pass->useResource(frameBuffers.vertexBuffer.get(), MTL::ResourceUsageRead);
 	pass->useResource(frameBuffers.indexBuffer.get(), MTL::ResourceUsageRead);
@@ -197,10 +197,10 @@ void gmtl::imgui::Renderer::draw(MTL::CommandBuffer* commandBuffer, CA::MetalDra
 			};
 			pass->setScissorRect(scissorRect);
 
-			pass->useResource(fontAtlas.get(), MTL::ResourceUsageSample);
+			pass->useResource(font_atlas.get(), MTL::ResourceUsageSample);
 
 			if (auto texId = cmd.GetTexID(); texId == shaders::invalid_handle) {
-				constants.imageIndex = fontAtlasHandle;
+				constants.imageIndex = font_atlas_handle;
 			} else {
 				// TODO: Figure out how to make other textures resident.
 				constants.imageIndex = texId;

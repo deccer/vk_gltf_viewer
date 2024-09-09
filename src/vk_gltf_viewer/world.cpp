@@ -7,7 +7,7 @@ World::World(Device& _device, std::size_t frameOverlap) noexcept : device(_devic
 }
 
 /** This remaps the data from the loaded asset, which essentially fuses the assets together to one. */
-void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
+void World::addAsset(const std::shared_ptr<asset_load_task>& task) {
 	ZoneScoped;
 	auto nodeOffset = nodes.size();
 	auto meshOffset = meshes.size();
@@ -19,12 +19,12 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 	// Append all the data to the back of our data, and adjust all indices correctly.
 	meshes.reserve(meshes.size() + task->meshes.size());
 	for (auto& mesh : task->meshes) {
-		auto indices = mesh.primitiveIndices;
+		auto indices = mesh.primitive_indices;
 		for (auto& index : indices)
 			index += primitiveOffset;
 
-		meshes.emplace_back(Mesh {
-			.primitiveIndices = std::move(indices),
+		meshes.emplace_back(mesh_primitive_indices {
+			.primitive_indices = std::move(indices),
 		});
 	}
 
@@ -43,7 +43,7 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 			if (channel.nodeIndex.has_value())
 				*channel.nodeIndex += nodeOffset;
 
-		animations.emplace_back(Animation {
+		animations.emplace_back(animation_t {
 			.channels = std::move(channels),
 			// The AnimationSampler object contains all data it needs, and therefore doesn't need remapping.
 			.samplers = std::move(animation.samplers),
@@ -112,7 +112,7 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 		}
 
 		device.get().immediateSubmit(device.get().getNextTransferQueueHandle(),
-		                             device.get().uploadCommandPools[taskScheduler.GetThreadNum()],
+		                             device.get().uploadCommandPools[task_scheduler.GetThreadNum()],
 		                             [&](auto cmd) {
 			VkDeviceSize dstOffset = 0;
 			if (oldPrimitiveBuffer) {
@@ -168,7 +168,7 @@ void World::addAsset(const std::shared_ptr<AssetLoadTask>& task) {
 		}
 
 		device.get().immediateSubmit(device.get().getNextTransferQueueHandle(),
-		                             device.get().uploadCommandPools[taskScheduler.GetThreadNum()],
+		                             device.get().uploadCommandPools[task_scheduler.GetThreadNum()],
 		                             [&](auto cmd) {
 			const VkBufferCopy uploadRegion {
 				.size = materialStagingBuffer->getBufferSize(),
@@ -250,7 +250,7 @@ void World::rebuildDrawBuffer(std::size_t frameIndex) {
 			}
 
 			auto transformIndex = transformCount++;
-			for (auto& primitive : meshes[*node.meshIndex].primitiveIndices) {
+			for (auto& primitive : meshes[*node.meshIndex].primitive_indices) {
 				auto& buffers = primitiveBuffers[primitive];
 				for (std::uint32_t i = 0; i < buffers.meshletCount; ++i) {
 					draws.emplace_back(shaders::meshlet_draw_t {

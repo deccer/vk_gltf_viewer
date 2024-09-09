@@ -56,12 +56,12 @@ SHADER_CONSTANT uint32_t maxMeshlets = 32; // This should best be a multiple of 
 // between 0..256 instead of the linear requirement of the work group ID.
 // For NVIDIA, we try to keep this structure below 108 bytes to keep it in shared memory.
 // Therefore, this is exactly 106 bytes big (4 + 102 * 1).
-struct TaskPayload {
+struct task_payload_t {
 	uint32_t baseID;
 	uint8_t deltaIDs[maxMeshlets];
 };
 
-struct Meshlet {
+struct meshlet_t {
 	uint32_t vertexOffset;
 	uint32_t triangleOffset;
 
@@ -117,7 +117,7 @@ layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly b
 	vec3 positions[];
 };
 layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer meshlets_ref {
-	Meshlet meshlets[];
+	meshlet_t meshlets[];
 };
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) restrict readonly buffer vertices_ref {
@@ -143,7 +143,7 @@ struct primitive_t {
 	BUFFER_REF(vertex_indices_ref, uint32_t) vertex_index_buffer MEMBER_INIT(0);
 	BUFFER_REF(primitive_indices_ref, uint8_t) primitive_index_buffer MEMBER_INIT(0);
 	BUFFER_REF(positions_ref, packed_fvec3) position_buffer MEMBER_INIT(0);
-	BUFFER_REF(meshlets_ref, Meshlet) meshlet_buffer MEMBER_INIT(0);
+	BUFFER_REF(meshlets_ref, meshlet_t) meshlet_buffer MEMBER_INIT(0);
 
 	BUFFER_REF(vertices_ref, vertex_t) vertex_buffer MEMBER_INIT(0);
 	SHADER_ARRAY(BUFFER_REF(uvs_ref, fvec2), uv_buffers, max_uv_sets);
@@ -161,7 +161,7 @@ struct primitive_transform_t {
 };
 
 struct material_texture_t {
-	ResourceTableHandle index MEMBER_INIT(shaders::invalid_handle);
+	resource_table_handle_t index MEMBER_INIT(shaders::invalid_handle);
 	uint32_t uv_set MEMBER_INIT(0);
 	packed_fvec2 uv_offset MEMBER_INIT(fvec2(0.f));
 	packed_fvec2 uv_scale MEMBER_INIT(fvec2(1.f));

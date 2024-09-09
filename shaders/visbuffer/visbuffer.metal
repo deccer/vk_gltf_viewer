@@ -262,7 +262,7 @@ struct visbuffer_frag_out {
 
 uint3 get_vertex_indices(
 		device const shaders::primitive_t& primitive,
-		device const shaders::Meshlet& meshlet,
+		device const shaders::meshlet_t& meshlet,
 		uint32_t primitive_id) {
 	uchar3 indices(
 		primitive.primitive_index_buffer[meshlet.triangleOffset + primitive_id * 3 + 0],

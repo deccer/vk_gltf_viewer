@@ -8,9 +8,9 @@
 namespace gvk = graphics::vulkan;
 namespace gmtl = graphics::metal;
 
-shaders::ResourceTableHandle graphics::ResourceTable::findFirstFreeHandle(std::vector<std::uint64_t>& bitmap) {
+shaders::resource_table_handle_t graphics::resource_table::find_first_free_handle(std::vector<std::uint64_t>& bitmap) {
 	ZoneScoped;
-	std::lock_guard lock(bitmapMutex);
+	std::lock_guard lock(bitmap_mutex);
 	for (std::size_t i = 0; i < bitmap.size(); ++i) {
 		auto& value = bitmap[i];
 		if (value == ~std::uint64_t(0U))
@@ -29,20 +29,20 @@ shaders::ResourceTableHandle graphics::ResourceTable::findFirstFreeHandle(std::v
 	throw std::runtime_error("Failed to find free handle");
 }
 
-void graphics::ResourceTable::freeHandle(std::vector<std::uint64_t>& bitmap, shaders::ResourceTableHandle handle) {
-	std::lock_guard lock(bitmapMutex);
+void graphics::resource_table::free_handle(std::vector<std::uint64_t>& bitmap, shaders::resource_table_handle_t handle) {
+	std::lock_guard lock(bitmap_mutex);
 	auto i = handle / 64;
 	bitmap[i] &= ~(std::uint64_t(1U) << (handle % 64));
 }
 
-void graphics::ResourceTable::removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept {
+void graphics::resource_table::remove_sampled_image_handle(shaders::resource_table_handle_t handle) noexcept {
 	ZoneScoped;
 	if (handle == shaders::invalid_handle)
 		return;
-	freeHandle(sampledImageBitmap, handle);
+	free_handle(sampled_image_bitmap, handle);
 }
 
-gvk::VkResourceTable::VkResourceTable(Device& _device) : device(_device) {
+gvk::vk_resource_table::vk_resource_table(Device& _device) : device(_device) {
 	ZoneScoped;
 	auto& properties = device.get().vulkan12Properties;
 	const std::array<VkDescriptorPoolSize, 2> sizes {{
@@ -107,19 +107,19 @@ gvk::VkResourceTable::VkResourceTable(Device& _device) : device(_device) {
 	};
 	vk::checkResult(vkAllocateDescriptorSets(device.get(), &allocateInfo, &set), "Failed to allocate descriptor set");
 
-	sampledImageBitmap.resize(fastgltf::alignUp(properties.maxDescriptorSetUpdateAfterBindSampledImages, 64) / 64);
-	storageImageBitmap.resize(fastgltf::alignUp(properties.maxDescriptorSetUpdateAfterBindStorageImages, 64) / 64);
+	sampled_image_bitmap.resize(fastgltf::alignUp(properties.maxDescriptorSetUpdateAfterBindSampledImages, 64) / 64);
+	storage_image_bitmap.resize(fastgltf::alignUp(properties.maxDescriptorSetUpdateAfterBindStorageImages, 64) / 64);
 }
 
-gvk::VkResourceTable::~VkResourceTable() noexcept {
+gvk::vk_resource_table::~vk_resource_table() noexcept {
 	ZoneScoped;
 	vkDestroyDescriptorSetLayout(device.get(), layout, vk::allocationCallbacks.get());
 	vkDestroyDescriptorPool(device.get(), pool, vk::allocationCallbacks.get());
 }
 
-shaders::ResourceTableHandle gvk::VkResourceTable::allocateStorageImage(VkImageView view, VkImageLayout imageLayout) noexcept {
+shaders::resource_table_handle_t gvk::vk_resource_table::allocate_storage_image(VkImageView view, VkImageLayout imageLayout) noexcept {
 	ZoneScoped;
-	auto handle = findFirstFreeHandle(storageImageBitmap);
+	auto handle = find_first_free_handle(storage_image_bitmap);
 
 	const VkDescriptorImageInfo imageInfo {
 			.imageView = view,
@@ -138,9 +138,9 @@ shaders::ResourceTableHandle gvk::VkResourceTable::allocateStorageImage(VkImageV
 	return handle;
 }
 
-shaders::ResourceTableHandle gvk::VkResourceTable::allocateSampledImage(VkImageView view, VkImageLayout imageLayout, VkSampler sampler) noexcept {
+shaders::resource_table_handle_t gvk::vk_resource_table::allocate_sampled_image(VkImageView view, VkImageLayout imageLayout, VkSampler sampler) noexcept {
 	ZoneScoped;
-	auto handle = findFirstFreeHandle(sampledImageBitmap);
+	auto handle = find_first_free_handle(sampled_image_bitmap);
 
 	const VkDescriptorImageInfo imageInfo {
 			.sampler = sampler,
@@ -160,37 +160,37 @@ shaders::ResourceTableHandle gvk::VkResourceTable::allocateSampledImage(VkImageV
 	return handle;
 }
 
-void gvk::VkResourceTable::removeStorageImageHandle(shaders::ResourceTableHandle handle) noexcept {
+void gvk::vk_resource_table::remove_storage_image_handle(shaders::resource_table_handle_t handle) noexcept {
 	ZoneScoped;
 	if (handle == shaders::invalid_handle)
 		return;
-	freeHandle(storageImageBitmap, handle);
+	free_handle(storage_image_bitmap, handle);
 }
 
 #if defined(VKV_METAL)
-gmtl::MtlResourceTable::MtlResourceTable(NS::SharedPtr<MTL::Device> pDevice) : device(std::move(pDevice)) {
+gmtl::mtl_resource_table::mtl_resource_table(NS::SharedPtr<MTL::Device> pDevice) : device(std::move(pDevice)) {
 	ZoneScoped;
 	/** The feature set tables say there's a limit of 1M textures that can be used
 	 * That number is arbitrary, and there is no actual limit beyond memory capacity.
 	 * For simplicity, we'll also just use 1M which should be enough in all cases. */
 	static constexpr std::size_t count = fastgltf::alignUp(1'000'000, 64);
-	sampledImageBuffer = device->newBuffer(count * sizeof(SampledTextureEntry), MTL::ResourceStorageModeShared);
-	sampledImageBuffer->setLabel(NS::String::string("Sampled image table", NS::UTF8StringEncoding));
+	sampled_image_buffer = device->newBuffer(count * sizeof(sampled_texture_entry), MTL::ResourceStorageModeShared);
+	sampled_image_buffer->setLabel(NS::String::string("Sampled image table", NS::UTF8StringEncoding));
 
-	sampledImageBitmap.resize(count);
+	sampled_image_bitmap.resize(count);
 }
 
-gmtl::MtlResourceTable::~MtlResourceTable() noexcept {
+gmtl::mtl_resource_table::~mtl_resource_table() noexcept {
 	ZoneScoped;
-	sampledImageBuffer->release();
+	sampled_image_buffer->release();
 }
 
-shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateSampledImage(NS::SharedPtr<MTL::Texture> texture, NS::SharedPtr<MTL::SamplerState> sampler) noexcept {
+shaders::resource_table_handle_t gmtl::mtl_resource_table::allocate_sampled_image(NS::SharedPtr<MTL::Texture> texture, NS::SharedPtr<MTL::SamplerState> sampler) noexcept {
 	ZoneScoped;
 	assert(texture && sampler);
-	auto handle = findFirstFreeHandle(sampledImageBitmap);
+	auto handle = find_first_free_handle(sampled_image_bitmap);
 
-	auto& data = static_cast<SampledTextureEntry*>(sampledImageBuffer->contents())[handle];
+	auto& data = static_cast<sampled_texture_entry*>(sampled_image_buffer->contents())[handle];
 	data.tex = texture->gpuResourceID();
 	data.sampler = sampler->gpuResourceID();
 
@@ -198,11 +198,11 @@ shaders::ResourceTableHandle gmtl::MtlResourceTable::allocateSampledImage(NS::Sh
 	return handle;
 }
 
-void gmtl::MtlResourceTable::removeSampledImageHandle(shaders::ResourceTableHandle handle) noexcept {
+void gmtl::mtl_resource_table::remove_sampled_image_handle(shaders::resource_table_handle_t handle) noexcept {
 	ZoneScoped;
 	assert(resources.contains(handle));
 	resources.erase(handle);
-	ResourceTable::removeSampledImageHandle(handle);
+	resource_table::remove_sampled_image_handle(handle);
 }
 
 #endif

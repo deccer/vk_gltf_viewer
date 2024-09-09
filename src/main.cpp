@@ -41,22 +41,22 @@ int main(int argc, char* argv[]) {
 	auto* autoreleasePool = NS::AutoreleasePool::alloc()->init();
 #endif
 
-	initializeScheduler();
+	initialize_scheduler();
 
 	// Create the application. We only use the unique_ptr here to be able to run the ctor within
 	// the try scope, but have the destroy functions outside of it.
-	std::unique_ptr<Application> application;
+	std::unique_ptr<application> app;
 	try {
-		application = std::make_unique<Application>(gltfs);
-		application->run();
+		app = std::make_unique<application>(gltfs);
+		app->run();
 	} catch (vulkan_error& error) {
 		fmt::print(stderr, "{}: {}", error.what(), error.what_result());
 	} catch (std::runtime_error& error) {
 		fmt::print(stderr, "{}", error.what());
 	}
-	application.reset();
+	app.reset();
 
-	taskScheduler.WaitforAllAndShutdown();
+	task_scheduler.WaitforAllAndShutdown();
 
 #if defined(__APPLE__)
 	autoreleasePool->release();

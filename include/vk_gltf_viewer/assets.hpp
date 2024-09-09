@@ -23,49 +23,49 @@ struct PrimitiveBuffers {
 	std::uint32_t meshletCount;
 };
 
-struct Mesh {
-	std::vector<std::uint64_t> primitiveIndices;
+struct mesh_primitive_indices {
+	std::vector<std::uint64_t> primitive_indices;
 };
 
 template <fastgltf::AnimationPath path>
-struct AnimationSamplerTraits {};
+struct animation_sampler_traits {};
 
-template <> struct AnimationSamplerTraits<fastgltf::AnimationPath::Translation> { using OutputType = fastgltf::math::fvec3; };
-template <> struct AnimationSamplerTraits<fastgltf::AnimationPath::Scale> { using OutputType = fastgltf::math::fvec3; };
-template <> struct AnimationSamplerTraits<fastgltf::AnimationPath::Rotation> { using OutputType = fastgltf::math::fquat; };
+template <> struct animation_sampler_traits<fastgltf::AnimationPath::Translation> { using output_type = fastgltf::math::fvec3; };
+template <> struct animation_sampler_traits<fastgltf::AnimationPath::Scale> { using output_type = fastgltf::math::fvec3; };
+template <> struct animation_sampler_traits<fastgltf::AnimationPath::Rotation> { using output_type = fastgltf::math::fquat; };
 
-struct AnimationSampler {
+struct animation_sampler_t {
 	std::vector<float> input;
 
 	fastgltf::AnimationInterpolation interpolation;
-	std::size_t componentCount;
-	std::size_t outputCount;
+	std::size_t component_count;
+	std::size_t output_count;
 	std::vector<float> values;
 
-	explicit AnimationSampler(const fastgltf::Asset& asset, const fastgltf::AnimationSampler& sampler) : interpolation(sampler.interpolation) {
+	explicit animation_sampler_t(const fastgltf::Asset& asset, const fastgltf::AnimationSampler& sampler) : interpolation(sampler.interpolation) {
 		ZoneScoped;
-		auto& outputAccessor = asset.accessors[sampler.outputAccessor];
-		outputCount = outputAccessor.count;
-		componentCount = fastgltf::getNumComponents(outputAccessor.type);
+		auto& output_accessor = asset.accessors[sampler.outputAccessor];
+		output_count = output_accessor.count;
+		component_count = fastgltf::getNumComponents(output_accessor.type);
 	}
 
 	template <fastgltf::AnimationPath path>
 	auto sample(float time) {
 		ZoneScoped;
-		using T = typename AnimationSamplerTraits<path>::OutputType;
+		using T = typename animation_sampler_traits<path>::output_type;
 
 		time = std::fmod(time, input.back()); // Ugly hack to loop animations
 
 		auto it = std::lower_bound(input.begin(), input.end(), time);
 		if (it == input.cbegin()) {
 			if (interpolation == fastgltf::AnimationInterpolation::CubicSpline)
-				return T::fromPointer(&values[(1) * componentCount]);
+				return T::fromPointer(&values[(1) * component_count]);
 			return T::fromPointer(&values[0]);
 		}
 		if (it == input.cend()) {
 			if (interpolation == fastgltf::AnimationInterpolation::CubicSpline)
-				return T::fromPointer(&values[(outputCount - 2) * componentCount]);
-			return T::fromPointer(&values[(outputCount - 1) * componentCount]);
+				return T::fromPointer(&values[(output_count - 2) * component_count]);
+			return T::fromPointer(&values[(output_count - 1) * component_count]);
 		}
 
 		auto i = std::distance(input.begin(), it);
@@ -74,10 +74,10 @@ struct AnimationSampler {
 		switch (interpolation) {
 			using enum fastgltf::AnimationInterpolation;
 			case Step:
-				return T::fromPointer(&values[(i - 1) * componentCount]);
+				return T::fromPointer(&values[(i - 1) * component_count]);
 			case Linear: {
-				auto vk = T::fromPointer(&values[(i - 1) * componentCount]);
-				auto vk1 = T::fromPointer(&values[i * componentCount]);
+				auto vk = T::fromPointer(&values[(i - 1) * component_count]);
+				auto vk1 = T::fromPointer(&values[i * component_count]);
 
 				if constexpr (path == fastgltf::AnimationPath::Rotation) {
 					return fastgltf::math::slerp(vk, vk1, t);
@@ -91,10 +91,10 @@ struct AnimationSampler {
 				auto dt = input[i] - input[i - 1];
 
 				std::array<T, 4> arr {{
-					T::fromPointer(&values[(3 * (i - 1) + 1) * componentCount]),
-					T::fromPointer(&values[(3 * (i - 1) + 2) * componentCount]),
-					T::fromPointer(&values[(3 * (i + 0) + 1) * componentCount]),
-					T::fromPointer(&values[(3 * (i + 0) + 0) * componentCount]),
+					T::fromPointer(&values[(3 * (i - 1) + 1) * component_count]),
+					T::fromPointer(&values[(3 * (i - 1) + 2) * component_count]),
+					T::fromPointer(&values[(3 * (i + 0) + 1) * component_count]),
+					T::fromPointer(&values[(3 * (i + 0) + 0) * component_count]),
 				}};
 
 				auto v = arr[0] * (2 * t3 - 3 * t2 + 1)
@@ -114,9 +114,9 @@ struct AnimationSampler {
 	}
 };
 
-struct Animation {
+struct animation_t {
 	std::vector<fastgltf::AnimationChannel> channels;
-	std::vector<AnimationSampler> samplers;
+	std::vector<animation_sampler_t> samplers;
 };
 
 struct DrawBuffers {
@@ -125,7 +125,7 @@ struct DrawBuffers {
 	std::unique_ptr<ScopedBuffer> transformBuffer;
 };
 
-class AssetLoadTask;
+class asset_load_task;
 
 /**
  * A World represents the whole world we render at once. This holds everything from
@@ -136,14 +136,14 @@ struct World {
 
 	std::vector<std::shared_ptr<fastgltf::Asset>> assets;
 
-	std::vector<Mesh> meshes;
+	std::vector<mesh_primitive_indices> meshes;
 	std::vector<PrimitiveBuffers> primitiveBuffers;
 	std::unique_ptr<ScopedBuffer> primitiveBuffer;
 
 	std::vector<shaders::material_t> materials;
 	std::unique_ptr<ScopedBuffer> materialBuffer;
 
-	std::vector<Animation> animations;
+	std::vector<animation_t> animations;
 	float animationTime = 0.f;
 	bool freezeAnimations = false;
 
@@ -159,29 +159,29 @@ private:
 public:
 	explicit World(Device& device, std::size_t frameOverlap) noexcept;
 
-	void addAsset(const std::shared_ptr<AssetLoadTask>& task);
+	void addAsset(const std::shared_ptr<asset_load_task>& task);
 	void iterateNode(std::size_t nodeIndex, fastgltf::math::fmat4x4 parent, std::function<void(fastgltf::Node&, const fastgltf::math::fmat4x4&)>& callback);
 	void updateDrawBuffers(std::size_t frameIndex, float dt);
 };
 
-class AssetLoadTask : public ExceptionTaskSet {
+class asset_load_task : public ExceptionTaskSet {
 	friend struct World;
-	friend class Application;
+	friend class application;
 
-	std::shared_ptr<graphics::Renderer> renderer;
-	std::filesystem::path assetPath;
+	std::shared_ptr<graphics::renderer> renderer;
+	std::filesystem::path asset_path;
 
 	std::shared_ptr<fastgltf::Asset> asset;
-	std::vector<Mesh> meshes;
-	std::vector<std::shared_ptr<graphics::Mesh>> primitives;
-	std::vector<Animation> animations;
-	std::vector<std::shared_ptr<graphics::Texture>> textures;
+	std::vector<mesh_primitive_indices> meshes;
+	std::vector<std::shared_ptr<graphics::mesh_t>> primitives;
+	std::vector<animation_t> animations;
+	std::vector<std::shared_ptr<graphics::texture_t>> textures;
 	std::vector<shaders::material_t> materials;
 
 	std::shared_ptr<fastgltf::Asset> loadGltf();
 
 public:
-	explicit AssetLoadTask(std::shared_ptr<graphics::Renderer> renderer, std::filesystem::path path);
+	explicit asset_load_task(std::shared_ptr<graphics::renderer> renderer, std::filesystem::path path);
 
 	void ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) override;
 };

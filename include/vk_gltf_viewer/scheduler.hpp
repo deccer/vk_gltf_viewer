@@ -5,14 +5,14 @@
 
 #include <TaskScheduler.h>
 
-inline enki::TaskScheduler taskScheduler;
+inline enki::TaskScheduler task_scheduler;
 
 enum class PinnedThreadId : std::uint32_t {
 	FileIO,
 	Count,
 };
 
-void initializeScheduler();
+void initialize_scheduler();
 std::uint32_t getPinnedThreadNum(PinnedThreadId id);
 
 /** Simple wrapper around another TaskSet that catches any exceptions in the ExecuteRange function. */
@@ -28,6 +28,21 @@ struct ExceptionTaskSet : public enki::ITaskSet {
 	}
 
 	virtual void ExecuteRangeWithExceptions(enki::TaskSetPartition range, std::uint32_t threadnum) = 0;
+
+	// Waits for the task and rethrows any exceptions from the task
+	virtual void WaitForExceptionTask() {
+		task_scheduler.WaitforTask(this);
+		if (exception)
+			std::rethrow_exception(exception);
+	}
+
+	// Returns true if this task is complete, but rethrows any exception from the task if it's complete
+	virtual bool GetIsCompleteWithExceptions() {
+		auto complete = GetIsComplete();
+		if (complete && exception)
+			std::rethrow_exception(exception);
+		return complete;
+	}
 };
 
 /**

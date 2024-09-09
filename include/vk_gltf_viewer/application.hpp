@@ -31,20 +31,20 @@ enum class ResolutionScalingModes {
 };
 
 /** The main Application class */
-class Application {
+class application {
 	friend void glfwResizeCallback(GLFWwindow* window, int width, int height);
 
-	std::vector<std::shared_ptr<AssetLoadTask>> assetLoadTasks;
+	std::vector<std::shared_ptr<asset_load_task>> asset_load_tasks;
 
 	/** The global deletion queue for all sorts of objects */
-	DeletionQueue deletionQueue;
+	DeletionQueue deletion_queue;
 
 	GLFWwindow* window;
-	std::shared_ptr<graphics::Renderer> renderer;
-	std::shared_ptr<graphics::Scene> scene;
-	std::unique_ptr<Camera> camera;
+	std::shared_ptr<graphics::renderer> renderer;
+	std::shared_ptr<graphics::scene_t> scene;
+	std::unique_ptr<camera_t> camera;
 
-	std::vector<std::shared_ptr<graphics::Texture>> textures;
+	std::vector<std::shared_ptr<graphics::texture_t>> textures;
 
 	glm::u32vec2 renderResolution;
 	ResolutionScalingModes scalingMode = ResolutionScalingModes::None;
@@ -53,13 +53,13 @@ class Application {
 	bool firstFrame = true;
 	double deltaTime = 0., lastFrame = 0.;
 
-	void updateRenderResolution();
-	void addAssetToScene(AssetLoadTask& assetLoadTask);
-	void renderUi();
+	void update_render_resolution();
+	void add_asset_to_scene(asset_load_task& task);
+	void render_ui();
 
 public:
-	explicit Application(std::span<std::filesystem::path> gltfs);
-	~Application() noexcept;
+	explicit application(std::span<std::filesystem::path> gltfs);
+	~application() noexcept;
 
 	void run();
 };
