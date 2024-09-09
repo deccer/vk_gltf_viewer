@@ -463,10 +463,14 @@ class tangent_calculation {
 	static void get_normal(const SMikkTSpaceContext *context, float outnormal[], int iFace, int iVert) {
 		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
 		auto index = get_vertex_index(context, iFace, iVert);
-		auto& vtx = data.vertices[index];
-		outnormal[0] = vtx.normal.x;
-		outnormal[1] = vtx.normal.y;
-		outnormal[2] = vtx.normal.z;
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+		auto vtx = shaders::normal_decode(glm::unpackSnorm2x16(data.vertices[index].normal));
+#else
+		auto& vtx = data.vertices[index].normal;
+#endif
+		outnormal[0] = vtx.x;
+		outnormal[1] = vtx.y;
+		outnormal[2] = vtx.z;
 	}
 
 	static void get_tex_coords(const SMikkTSpaceContext *context, float outuv[], int iFace, int iVert) {
@@ -485,7 +489,11 @@ class tangent_calculation {
 		auto& data = *static_cast<tangent_calculation*>(context->m_pUserData);
 		auto index = get_vertex_index(context, iFace, iVert);
 		auto& vtx = data.vertices[index];
+#if VERTEX_BUFFER_TANGENT_ENCODING == 1
+		vtx.tangent = shaders::tangent_encode(glm::vec4(glm::make_vec3(tangentu), -fSign));
+#else
 		vtx.tangent = glm::vec4(glm::make_vec3(tangentu), -fSign);
+#endif
 	}
 
 	SMikkTSpaceInterface interface {
@@ -608,9 +616,13 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 
 	bool generated_normals = false;
 	if (auto* normalAttribute = gltfPrimitive.findAttribute("NORMAL"); normalAttribute != gltfPrimitive.attributes.end()) {
-		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex], [&](glm::vec3 val, std::size_t idx) {
+		fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normalAttribute->accessorIndex],
+			[&](glm::vec3 val, std::size_t idx) {
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+			vertices[idx].normal = glm::packSnorm2x16(shaders::normal_encode(glm::normalize(val)));
+#else
 			vertices[idx].normal = glm::normalize(val);
-			//vertices[idx].normal = glm::packHalf2x16(shaders::normal_encode(glm::normalize(val)));
+#endif
 		}, adapter);
 	} else {
 		// Generate basic smooth vertex normals. As we quantize the normals, we have to store them first to normalize them afterwards.
@@ -629,8 +641,11 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 			normals[i2] += val;
 		}
 		for (std::size_t i = 0; i < normals.size(); ++i) {
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+			vertices[i].normal = glm::packSnorm2x16(shaders::normal_encode(glm::normalize(normals[i])));
+#else
 			vertices[i].normal = glm::normalize(normals[i]);
-			//vertices[i].normal = glm::packHalf2x16(shaders::normal_encode(glm::normalize(normals[i])));
+#endif
 		}
 		generated_normals = true;
 	}
@@ -682,7 +697,11 @@ void PrimitiveProcessingTask::processPrimitive(std::uint64_t primitiveIdx, const
 	if (auto* tangentAttribute = gltfPrimitive.findAttribute("TANGENT"); !generated_normals && tangentAttribute != gltfPrimitive.attributes.end()) {
 		fastgltf::iterateAccessorWithIndex<glm::fvec4>(asset, asset.accessors[tangentAttribute->accessorIndex],
 			[&](glm::fvec4 val, std::size_t idx) {
-			vertices[idx].tangent = val;
+#if VERTEX_BUFFER_TANGENT_ENCODING == 1
+			vertices[idx].tangent = shaders::tangent_encode(val);
+#else
+			vertices[idx].tangent = glm::vec4(glm::make_vec3(tangentu), -fSign);
+#endif
 		}, adapter);
 		generated_tangents = true;
 	}

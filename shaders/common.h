@@ -167,4 +167,10 @@ namespace shaders {
 #define saturate(Value) clamp(Value, 0.f, 1.f)
 #endif
 
+// If 1 use octahedral encoding, if 0 just store the normal
+// This only really exists for testing purposes but could be useful to determine a difference
+#define GBUFFER_NORMAL_ENCODING 1
+#define VERTEX_BUFFER_NORMAL_ENCODING 1
+#define VERTEX_BUFFER_TANGENT_ENCODING 1
+
 #endif

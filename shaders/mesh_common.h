@@ -73,8 +73,21 @@ struct Meshlet {
 };
 
 struct vertex_t {
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+#if defined(SHADER_METAL)
+	mtl::rg16snorm<float2> normal;
+#else
+	uint32_t normal;
+#endif
+#else
 	packed_fvec3 normal;
+#endif
+
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+	uint32_t tangent;
+#else
 	packed_fvec4 tangent;
+#endif
 
 #if defined(SHADER_METAL)
 	mtl::rgba8unorm<float4> color;
@@ -192,58 +205,61 @@ FUNCTION_INLINE fvec2 transform_uv(material_texture_t texture, fvec2 uv) {
 }
 #endif
 
-// Octahedron-normal vectors encoding for use in the GBuffer
+// Octahedron-normal vectors encoding for use in the GBuffer and for compressing normals & tangents
+FUNCTION_INLINE fvec2 sign_not_zero(fvec2 v) {
+	return fvec2(
+		(v.x >= 0.f) ? +1.f : -1.f,
+		(v.y >= 0.f) ? +1.f : -1.f);
+}
+
 #if !defined(SHADER_CPP)
-FUNCTION_INLINE fvec2 oct_wrap(fvec2 v) {
-	fvec2 factor = fvec2(
-		v.x >= 0.f ? 1.f : -1.f,
-		v.y >= 0.f ? 1.f : -1.f);
-	return (1.f - abs(v.yx)) * factor;
+FUNCTION_INLINE fvec2 normal_encode(fvec3 v) {
+	const fvec2 p = v.xy * (1.f / (abs(v.x) + abs(v.y) + abs(v.z)));
+	return (v.z <= 0.f)
+		? ((1.f - abs(p.yx)) * sign_not_zero(p))
+		: p;
 }
 
-FUNCTION_INLINE fvec2 normal_encode(fvec3 n) {
-	n /= (abs(n.x) + abs(n.y) + abs(n.z));
-	n.xy = n.z >= 0.f ? n.xy : oct_wrap(n.xy);
-	return n.xy * 0.5f + 0.5f;
-}
-
-FUNCTION_INLINE fvec3 normal_decode(fvec2 f) {
-	if (all(equal(f, fvec2(0.f)))) {
-		return fvec3(0.f);
+FUNCTION_INLINE fvec3 normal_decode(fvec2 e) {
+	fvec3 v = fvec3(e.xy, 1.f - abs(e.x) - abs(e.y));
+	if (v.z < 0.f) {
+		v.xy = (1.f - abs(v.yx)) * sign_not_zero(v.xy);
 	}
+	return normalize(v);
+}
 
-	f = f * 2.f - 1.f;
-
-	// https://twitter.com/Stubbesaurus/status/937994790553227264
-	fvec3 n = fvec3(f.x, f.y, 1.f - abs(f.x) - abs(f.y));
-	float t = saturate(-n.z);
-	n.x += n.x >= 0.f ? -t : t;
-	n.y += n.y >= 0.f ? -t : t;
-	return normalize(n);
+FUNCTION_INLINE fvec4 tangent_decode(uint32_t v) {
+	const float sign = bool(v & 1) ? -1.f : +1.f;
+#if defined(SHADER_METAL)
+	const auto e = unpack_snorm2x16_to_float(v & ~1);
+	return fvec4(normal_decode(e), sign);
+#endif
+	return fvec4(1.f); // TODO
 }
 #else
-inline fvec2 oct_wrap(fvec2 v) {
-	auto factor = fvec2(
-		v.x >= 0.f ? 1.f : -1.f,
-		v.y >= 0.f ? 1.f : -1.f);
-	return (1.f - abs(glm::yx(v))) * factor;
+// TODO: Is there some way to share these definitions by introducing some swizzling magic for shared headers?
+inline auto normal_encode(fvec3 v) {
+	const auto p = xy(v) * (1.f / (abs(v.x) + abs(v.y) + abs(v.z)));
+	return (v.z <= 0.f)
+		? ((1.f - glm::abs(yx(p))) * sign_not_zero(p))
+		: p;
 }
 
-inline fvec2 normal_encode(fvec3 n) {
-	n /= (abs(n.x) + abs(n.y) + abs(n.z));
-	glm::xy(n) = n.z >= 0.f ? glm::xy(n) : oct_wrap(glm::xy(n));
-	return glm::xy(n) * 0.5f + 0.5f;
+inline auto normal_decode(fvec2 e) {
+	auto v = fvec3(xy(e), 1.f - abs(e.x) - abs(e.y));
+	if (v.z < 0.f) {
+		xy(v) = (1.f - abs(yx(v))) * sign_not_zero(xy(v));
+	}
+	return normalize(v);
 }
 
-inline fvec3 normal_decode(fvec2 f) {
-	f = f * 2.f - 1.f;
-
-	// https://twitter.com/Stubbesaurus/status/937994790553227264
-	fvec3 n = fvec3(f.x, f.y, 1.f - abs(f.x) - abs(f.y));
-	float t = glm::clamp(-n.z, 0.f, 1.f);
-	n.x += n.x >= 0.f ? -t : t;
-	n.y += n.y >= 0.f ? -t : t;
-	return normalize(n);
+// the tangent encoding is effectively identical to the normal encoding, but
+// this additionally stores the sign bit in the lowest bit of the encoded integer.
+// this makes us loose a tiny bit of precision which should be effectively unnoticeable.
+inline auto tangent_encode(fvec4 v) {
+	const auto e = glm::packSnorm2x16(normal_encode(xyz(v)));
+	const auto sign_bit = v.w >= 0.f ? 0 : 1;
+	return (e & ~1) | (sign_bit);
 }
 #endif
 

@@ -66,7 +66,11 @@ half3 conductor_fresnel(half3 f0, half3 bsdf, half VdotH) {
 struct gbuffer_tile_data {
 	packed_half4 color [[raster_order_group(0)]];
 	mtl::rgba8unorm<half4> albedo [[raster_order_group(0)]];
-	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
+#if GBUFFER_NORMAL_ENCODING == 1
+	mtl::rg16snorm<float2> normal [[raster_order_group(0)]];
+#else
+	mtl::rgba16snorm<float4> normal [[raster_order_group(0)]];
+#endif
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
 };
 
@@ -91,7 +95,11 @@ struct gbuffer_tile_data {
 
 	auto albedo = half4(data->albedo).xyz;
 	auto roughness = mtl::pow(data->metallic_roughness.x, 2.h);
+#if GBUFFER_NORMAL_ENCODING == 1
 	auto normal = half3(shaders::normal_decode(data->normal));
+#else
+	auto normal = half3(float4(data->normal).xyz);
+#endif
 
 	auto NdotV = mtl::abs(mtl::dot(normal, view)) + 1E-5h;
 	auto NdotH = mtl::saturate(mtl::dot(normal, halfv));
@@ -109,4 +117,5 @@ struct gbuffer_tile_data {
 	auto final = mtl::mix(dielectric_brdf, metal_brdf, data->metallic_roughness.y);
 
 	data->color = shaders::from_linear(half4(ambient * albedo + final, 1.h));
+	//data->color = half4(normal * 0.5h + 0.5h, 1.h);
 }

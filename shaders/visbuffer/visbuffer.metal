@@ -212,7 +212,11 @@ struct rgb16unorm {
 /// and generate the various GBuffer textures.
 struct visbuffer_tile_data {
 	mtl::rgba8unorm<float4> albedo [[raster_order_group(0)]];
-	mtl::rg16unorm<float2> normal [[raster_order_group(0)]];
+#if GBUFFER_NORMAL_ENCODING == 1
+	mtl::rg16snorm<float2> normal [[raster_order_group(0)]];
+#else
+	mtl::rgba16snorm<float4> normal [[raster_order_group(0)]];
+#endif
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
 	uint visbuffer [[raster_order_group(0)]];
 
@@ -431,15 +435,29 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 			mr_tex.sampler, transform_uv(material.metallic_roughness, uv.value), uv.grad).gb);
 	}
 
-	auto transposed_inverse = as_transposed_3x3(transform.inverse_matrix);
-    auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
-        float3(vtx0.normal),
-        float3(vtx1.normal),
-        float3(vtx2.normal));
+	const auto transposed_inverse = as_transposed_3x3(transform.inverse_matrix);
+#if VERTEX_BUFFER_NORMAL_ENCODING == 1
+	auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
+		shaders::normal_decode(float2(vtx0.normal)),
+		shaders::normal_decode(float2(vtx1.normal)),
+		shaders::normal_decode(float2(vtx2.normal)));
+#else
+	auto normal = transposed_inverse * interpolate(float3(data->barycentrics),
+		float3(vtx0.normal),
+		float3(vtx1.normal),
+		float3(vtx2.normal));
+#endif
 
 	if (material.normal.index != shaders::invalid_handle) {
-		auto tangent = interpolate(float3(data->barycentrics),
+#if VERTEX_BUFFER_TANGENT_ENCODING == 1
+		const auto tangent = interpolate(float3(data->barycentrics),
+			shaders::tangent_decode(vtx0.tangent),
+			shaders::tangent_decode(vtx1.tangent),
+			shaders::tangent_decode(vtx2.tangent));
+#else
+		const auto tangent = interpolate(float3(data->barycentrics),
 			float4(vtx0.tangent), float4(vtx1.tangent), float4(vtx2.tangent));
+#endif
 
 		device auto& tex = resourceTable[material.normal.index];
 		device auto* uv_buffer = primitive.uv_buffers[material.normal.uv_set];
@@ -459,5 +477,9 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 		normal = mtl::normalize(TBN * sampled_normal);
 	}
 
-    data->normal = shaders::normal_encode(mtl::normalize(normal));
+#if GBUFFER_NORMAL_ENCODING == 1
+	data->normal = shaders::normal_encode(mtl::normalize(normal));
+#else
+	data->normal = float4(mtl::normalize(float3(normal)), 1.f);
+#endif
 }
