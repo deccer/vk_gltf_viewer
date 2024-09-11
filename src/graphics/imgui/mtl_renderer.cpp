@@ -72,10 +72,11 @@ gmtl::imgui::imgui_renderer::imgui_renderer(NS::SharedPtr<MTL::Device> nDevice, 
 
 	font_atlas->replaceRegion(MTL::Region::Make2D(0, 0, width, height), 0, pixels, width);
 
-	auto* samplerDescriptor = MTL::SamplerDescriptor::alloc()->init()->autorelease();
-	samplerDescriptor->setMinFilter(MTL::SamplerMinMagFilterLinear);
-	samplerDescriptor->setMagFilter(MTL::SamplerMinMagFilterLinear);
-	font_atlas_sampler = NS::TransferPtr(device->newSamplerState(samplerDescriptor));
+	auto* sampler_desc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	sampler_desc->setMinFilter(MTL::SamplerMinMagFilterLinear);
+	sampler_desc->setMagFilter(MTL::SamplerMinMagFilterLinear);
+	sampler_desc->setSupportArgumentBuffers(true);
+	font_atlas_sampler = NS::TransferPtr(device->newSamplerState(sampler_desc));
 
 	font_atlas_handle = resource_table->allocate_sampled_image(font_atlas, font_atlas_sampler);
 	io.Fonts->SetTexID(font_atlas_handle);

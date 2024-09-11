@@ -296,10 +296,11 @@ gmtl::meshlet_renderer::meshlet_renderer(GLFWwindow* window) {
 
 	// Create the default sampler.
 	// When texture.sampler is undefined, a sampler with repeat wrapping (in both directions) and auto filtering MUST be used.
-	auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
-	samplerDesc->setRAddressMode(MTL::SamplerAddressModeRepeat);
-	samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
-	default_sampler = std::make_shared<mtl_sampler>(device->newSamplerState(samplerDesc));
+	auto* sampler_desc = MTL::SamplerDescriptor::alloc()->init()->autorelease();
+	sampler_desc->setRAddressMode(MTL::SamplerAddressModeRepeat);
+	sampler_desc->setSAddressMode(MTL::SamplerAddressModeRepeat);
+	sampler_desc->setSupportArgumentBuffers(true);
+	default_sampler = std::make_shared<mtl_sampler>(device->newSamplerState(sampler_desc));
 
 	visbuffer_pass.init_pass(*this);
 	shading_pass.init_pass(*this);
@@ -479,6 +480,7 @@ std::shared_ptr<graphics::sampler_t> gmtl::meshlet_renderer::create_shared_sampl
 	sampler_desc->setMinFilter(get_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
 	sampler_desc->setMagFilter(get_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest)));
 	sampler_desc->setMipFilter(get_mip_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)));
+	sampler_desc->setSupportArgumentBuffers(true);
 	return std::make_shared<mtl_sampler>(device->newSamplerState(sampler_desc));
 }
 
