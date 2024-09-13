@@ -55,3 +55,6 @@
 [submodule "submodules/mikktspace"]
 	path = submodules/mikktspace
 	url = https://github.com/mmikk/MikkTSpace
+[submodule "submodules/entt"]
+	path = submodules/entt
+	url = https://github.com/skypjack/entt

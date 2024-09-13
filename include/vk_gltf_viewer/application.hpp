@@ -23,11 +23,43 @@
 #include <vk_gltf_viewer/assets.hpp>
 #include <vk_gltf_viewer/camera.hpp>
 
+#include <entt/entt.hpp>
+
 enum class ResolutionScalingModes {
 	None,
 #if defined(VKV_NV_DLSS)
 	DLSS,
 #endif
+};
+
+struct node_component_t {
+	entt::entity parent = entt::null;
+
+	entt::entity first_child = entt::null;
+
+	// prev/next values used as iterators for iterating through a list of
+	// children from the parent node
+	entt::entity prev = entt::null;
+	entt::entity next = entt::null;
+};
+
+struct name_component_t {
+	std::string name;
+};
+
+struct transform_component_t {
+	glm::fvec3 position = glm::fvec3(0.f);
+	glm::fquat rotation = glm::fquat::wxyz(1.f, 0.f, 0.f, 0.f);
+	glm::fvec3 scale = glm::fvec3(1.f);
+
+	glm::fmat4x4 transform = glm::fmat4x4(1.f);
+};
+
+struct dirty_transform_tag_t {};
+
+struct mesh_component_t {
+	std::shared_ptr<graphics::mesh_t> mesh;
+	graphics::instance_index instance_index;
 };
 
 /** The main Application class */
@@ -41,8 +73,13 @@ class application {
 
 	GLFWwindow* window;
 	std::shared_ptr<graphics::renderer> renderer;
+
+	entt::registry registry;
+	entt::entity root_scene_node = entt::null;
 	std::shared_ptr<graphics::scene_t> scene;
 	std::unique_ptr<camera_t> camera;
+
+	entt::entity selected_node = entt::null;
 
 	std::vector<std::shared_ptr<graphics::texture_t>> textures;
 
@@ -56,6 +93,7 @@ class application {
 	void update_render_resolution();
 	void add_asset_to_scene(asset_load_task& task);
 	void render_ui();
+	void render_scene_tree(entt::entity node);
 
 public:
 	explicit application(std::span<std::filesystem::path> gltfs);

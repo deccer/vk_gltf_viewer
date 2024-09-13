@@ -242,4 +242,8 @@ if(EXISTS "${VKV_DEPS_DIR}/mikktspace")
     target_include_directories(mikktspace PUBLIC "${VKV_DEPS_DIR}/mikktspace")
 endif()
 
+if(EXISTS "${VKV_DEPS_DIR}/entt")
+    add_subdirectory("${VKV_DEPS_DIR}/entt")
+endif()
+
 return(PROPAGATE SHADER_INCLUDE_DIRS)

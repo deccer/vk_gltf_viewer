@@ -297,14 +297,14 @@ void image_load_task_t::ExecuteRangeWithExceptions(enki::TaskSetPartition range,
 			[&](const fg::sources::Array& array) {
 				images[i] = load(std::span(array.bytes.data(), array.bytes.size()), array.mimeType);
 			},
-			[&](fg::sources::BufferView& bufferView) {
-				auto& view = asset.bufferViews[bufferView.bufferViewIndex];
-				auto& buffer = asset.buffers[view.bufferIndex];
+			[&](const fg::sources::BufferView& bufferView) {
+				const auto& view = asset.bufferViews[bufferView.bufferViewIndex];
+				const auto& buffer = asset.buffers[view.bufferIndex];
 				return std::visit(fg::visitor{
 					[]([[maybe_unused]] auto& arg) {
 						throw std::runtime_error("Got an unexpected image data source. Can't load image.");
 					},
-					[&](fg::sources::Array& array) {
+					[&](const fg::sources::Array& array) {
 						images[i] = load(std::span(array.bytes.data() + view.byteOffset, array.bytes.size()), bufferView.mimeType);
 					}
 				}, buffer.data);
