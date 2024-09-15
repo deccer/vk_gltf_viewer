@@ -568,6 +568,7 @@ static constexpr std::size_t baseline_stream_count = 2;
 
 std::pair<std::size_t, std::array<meshopt_Stream, baseline_stream_count + shaders::max_uv_sets>> generate_geometry_stream(
 	std::span<const glm::fvec3> positions, std::span<const shaders::vertex_t> vertices, std::array<std::span<const glm::fvec2>, shaders::max_uv_sets> uvs) {
+	assert(positions.size() == vertices.size());
 
 	std::size_t stream_count = baseline_stream_count;
 	std::array<meshopt_Stream, baseline_stream_count + shaders::max_uv_sets> streams {{
@@ -578,6 +579,7 @@ std::pair<std::size_t, std::array<meshopt_Stream, baseline_stream_count + shader
 		if (uv_buffer.empty())
 			continue;
 
+		assert(uv_buffer.size() == positions.size());
 		streams[stream_count++] = { uv_buffer.data(), sizeof(glm::fvec2), sizeof(glm::fvec2) };
 	}
 	return std::make_pair(stream_count, streams);
@@ -733,7 +735,7 @@ void primitive_processing_task_t::process_primitive(std::uint64_t primitive_idx,
 
 		const auto [stream_count, streams] = generate_geometry_stream(
 			unindexed_positions, unindexed_vertices,
-			transform_array(uvs, [](auto& buffer) { return std::span<const glm::fvec2>(buffer); }));
+			transform_array(unindexed_uvs, [](const auto& buffer) { return std::span<const glm::fvec2>(buffer); }));
 
 		// Generate the remap data. index count is equal to position count here, since it is unindexed
 		std::size_t index_count = unindexed_positions.size();
