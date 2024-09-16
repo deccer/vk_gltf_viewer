@@ -18,10 +18,10 @@ CA::MetalLayer* graphics::metal::create_metal_layer(GLFWwindow* window) {
 	layer.displaySyncEnabled = YES;
 	layer.framebufferOnly = NO;
 
-    layer.wantsExtendedDynamicRangeContent = YES;
-    auto colorspace = CGColorSpaceCreateWithName(kCGColorSpaceDisplayP3);
-    layer.colorspace = colorspace;
-    CGColorSpaceRelease(colorspace);
+	layer.wantsExtendedDynamicRangeContent = YES;
+	auto colorspace = CGColorSpaceCreateWithName(kCGColorSpaceDisplayP3);
+	layer.colorspace = colorspace;
+	CGColorSpaceRelease(colorspace);
 
 	NSWindow* nswindow = glfwGetCocoaWindow(window);
 	nswindow.contentView.layer = layer; // NOLINT

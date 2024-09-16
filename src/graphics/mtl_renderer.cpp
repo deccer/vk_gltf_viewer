@@ -46,7 +46,7 @@ graphics::instance_index gmtl::meshlet_scene::add_mesh_instance(std::shared_ptr<
 				.position_buffer = meshletMesh->position_buffer->gpuAddress(),
 				.vertex_buffer = meshletMesh->vertex_buffer->gpuAddress(),
 				.meshlet_buffer = meshletMesh->meshlet_buffer->gpuAddress(),
-				.uv_buffers = transform_array(meshletMesh->uv_buffers, [](auto& buffer) { return buffer->gpuAddress(); }),
+				.uv_buffers = transform_array(meshletMesh->uv_buffers, [](auto& buffer) { return buffer ? buffer->gpuAddress() : 0; }),
 				.aabb_extents = meshletMesh->aabb_extents,
 				.aabb_center = meshletMesh->aabb_extents,
 				.meshlet_count = meshletMesh->meshlet_count,
@@ -119,6 +119,10 @@ void gmtl::meshlet_scene::update_draw_buffers(std::size_t frameIndex) {
 	}
 }
 
+static constexpr auto gbuffer_albedo_index = 0UZ;
+static constexpr auto gbuffer_normals_index = 1UZ;
+static constexpr auto gbuffer_mr_index = 2UZ;
+
 static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 	MTL::PixelFormatRGBA8Unorm, // Color
 #if GBUFFER_NORMAL_ENCODING == 1
@@ -128,6 +132,7 @@ static constexpr std::array<MTL::PixelFormat, 3> gbuffer_formats {{
 #endif
 	MTL::PixelFormatRG16Float, // Metallic & Roughness
 }};
+static constexpr auto motion_vector_format = MTL::PixelFormatRG16Float;
 
 void gmtl::visbuffer_pass::init_pass(meshlet_renderer& renderer) {
 	ZoneScoped;
@@ -145,6 +150,7 @@ void gmtl::visbuffer_pass::init_pass(meshlet_renderer& renderer) {
 
 	for (std::size_t i = 0; auto& format : gbuffer_formats)
 		visbuffer_pipeline_desc->colorAttachments()->object(i++)->setPixelFormat(format);
+	visbuffer_pipeline_desc->colorAttachments()->object(gbuffer_formats.size())->setPixelFormat(motion_vector_format);
 	visbuffer_pipeline_desc->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
 
 	NS::Error* error = nullptr;
@@ -160,6 +166,7 @@ void gmtl::visbuffer_pass::init_pass(meshlet_renderer& renderer) {
 
 	for (std::size_t i = 0; auto& format : gbuffer_formats)
 		gbuffer_tile_desc->colorAttachments()->object(i++)->setPixelFormat(format);
+	gbuffer_tile_desc->colorAttachments()->object(gbuffer_formats.size())->setPixelFormat(motion_vector_format);
 
 	gbuffer_tile_pipeline = NS::TransferPtr(
 		device->newRenderPipelineState(gbuffer_tile_desc, MTL::PipelineOptionNone, nullptr, &error));
@@ -173,18 +180,16 @@ void gmtl::visbuffer_pass::init_pass(meshlet_renderer& renderer) {
 	depthStateDesc->setDepthCompareFunction(MTL::CompareFunctionGreaterEqual);
 
 	depth_state = NS::TransferPtr(device->newDepthStencilState(depthStateDesc));
-
-	update_resolution(renderer);
 }
 
 void gmtl::visbuffer_pass::update_resolution(meshlet_renderer& renderer) {
 	ZoneScoped;
 	auto device = renderer.device;
 
-	auto size = renderer.layer->drawableSize();
+	const auto size = renderer.get_render_resolution();
 
 	auto* albedo_desc = MTL::TextureDescriptor::texture2DDescriptor(
-		gbuffer_formats[0], size.width, size.height, false);
+		gbuffer_formats[gbuffer_albedo_index], size.x, size.y, false);
 	albedo_desc->setUsage(MTL::TextureUsageRenderTarget);
 	albedo_desc->setStorageMode(MTL::StorageModePrivate);
 
@@ -192,7 +197,7 @@ void gmtl::visbuffer_pass::update_resolution(meshlet_renderer& renderer) {
 	albedo_texture->setLabel(MTLSTR("Albedo"));
 
 	auto* normal_desc = MTL::TextureDescriptor::texture2DDescriptor(
-		gbuffer_formats[1], size.width, size.height, false);
+		gbuffer_formats[gbuffer_normals_index], size.x, size.y, false);
 	normal_desc->setUsage(MTL::TextureUsageRenderTarget);
 	normal_desc->setStorageMode(MTL::StorageModePrivate);
 
@@ -200,15 +205,23 @@ void gmtl::visbuffer_pass::update_resolution(meshlet_renderer& renderer) {
 	normal_texture->setLabel(MTLSTR("Normals"));
 
 	auto* mr_desc = MTL::TextureDescriptor::texture2DDescriptor(
-		gbuffer_formats[2], size.width, size.height, false);
+		gbuffer_formats[gbuffer_mr_index], size.x, size.y, false);
 	mr_desc->setUsage(MTL::TextureUsageRenderTarget);
 	mr_desc->setStorageMode(MTL::StorageModePrivate);
 
 	metallic_roughness_texture = NS::TransferPtr(device->newTexture(mr_desc));
 	metallic_roughness_texture->setLabel(MTLSTR("Metallic roughness"));
 
+	auto* mv_desc = MTL::TextureDescriptor::texture2DDescriptor(
+		motion_vector_format, size.x, size.y, false);
+	mv_desc->setUsage(MTL::TextureUsageRenderTarget | renderer.temporal_scaler->motionTextureUsage());
+	mv_desc->setStorageMode(MTL::StorageModePrivate);
+
+	motion_vector_texture = NS::TransferPtr(device->newTexture(mv_desc));
+	motion_vector_texture->setLabel(MTLSTR("Motion vectors"));
+
 	auto* depthDesc = MTL::TextureDescriptor::texture2DDescriptor(
-			MTL::PixelFormatDepth32Float, size.width, size.height, false);
+			MTL::PixelFormatDepth32Float, size.x, size.y, false);
 	depthDesc->setUsage(MTL::TextureUsageShaderRead & MTL::TextureUsageRenderTarget);
 	depthDesc->setStorageMode(MTL::StorageModePrivate);
 
@@ -233,8 +246,6 @@ void gmtl::shading_pass::init_pass(meshlet_renderer& renderer) {
 	if (!shading_pass_pipeline) {
 		fmt::print("{}", error->localizedDescription()->utf8String());
 	}
-
-	update_resolution(renderer);
 }
 
 void gmtl::shading_pass::update_resolution(meshlet_renderer& renderer) {
@@ -304,6 +315,8 @@ gmtl::meshlet_renderer::meshlet_renderer(GLFWwindow* window) {
 
 	visbuffer_pass.init_pass(*this);
 	shading_pass.init_pass(*this);
+
+	meshlet_renderer::update_resolution(glm::u32vec2(get_window_resolution().x / 2, get_window_resolution().y / 2));
 }
 
 gmtl::meshlet_renderer::~meshlet_renderer() noexcept = default;
@@ -530,28 +543,84 @@ std::shared_ptr<graphics::texture_t> gmtl::meshlet_renderer::create_shared_textu
 		mtlSampler);
 }
 
+void gmtl::meshlet_renderer::create_temporal_scaler() {
+	ZoneScoped;
+	const auto input_res = get_render_resolution();
+	const auto output_res = get_window_resolution();
+
+	auto* scaler_desc = MTLFX::TemporalScalerDescriptor::alloc()->init()->autorelease();
+	scaler_desc->setInputWidth(input_res.x);
+	scaler_desc->setInputHeight(input_res.y);
+	scaler_desc->setOutputWidth(output_res.x);
+	scaler_desc->setOutputHeight(output_res.y);
+
+	scaler_desc->setOutputTextureFormat(layer->pixelFormat());
+	scaler_desc->setColorTextureFormat(layer->pixelFormat());
+	scaler_desc->setDepthTextureFormat(visbuffer_pass.depth_texture->pixelFormat());
+	scaler_desc->setMotionTextureFormat(motion_vector_format);
+
+	temporal_scaler = NS::TransferPtr(scaler_desc->newTemporalScaler(device.get()));
+
+	if (!(color_texture && input_res.x == color_texture->width() && input_res.y == color_texture->height())) {
+		auto* color_desc = MTL::TextureDescriptor::texture2DDescriptor(
+			layer->pixelFormat(), input_res.x, input_res.y, false);
+		color_desc->setUsage(MTL::TextureUsageRenderTarget | temporal_scaler->colorTextureUsage());
+		color_desc->setStorageMode(MTL::StorageModePrivate);
+		color_texture = NS::TransferPtr(device->newTexture(color_desc));
+		color_texture->setLabel(MTLSTR("Low-Res Color texture"));
+	}
+
+	if (!(color_output_texture && output_res.x == color_output_texture->width() && output_res.y == color_output_texture->height())) {
+		auto* output_desc = MTL::TextureDescriptor::texture2DDescriptor(
+			layer->pixelFormat(), output_res.x, output_res.y, false);
+		output_desc->setUsage(MTL::TextureUsageRenderTarget | temporal_scaler->outputTextureUsage());
+		output_desc->setStorageMode(MTL::StorageModePrivate);
+		color_output_texture = NS::TransferPtr(device->newTexture(output_desc));
+		color_output_texture->setLabel(MTLSTR("Upscaled color texture"));
+	}
+
+	first_frame_temporal = true;
+}
+
 void gmtl::meshlet_renderer::update_resolution(glm::u32vec2 resolution) {
 	ZoneScoped;
 	resolution *= 2; // TODO: Get CA::Layer::contentScale here.
 	layer->setDrawableSize(CGSizeMake(resolution.x, resolution.y));
 
+	if (scaling_mode == scaling_modes_e::mtlfx_temporal) {
+		render_resolution = glm::u32vec2(
+			resolution.x * render_scale,
+			resolution.y * render_scale);
+	} else {
+		render_resolution = resolution;
+	}
+
 	visbuffer_pass.update_resolution(*this);
 	shading_pass.update_resolution(*this);
+
+	if (scaling_mode == scaling_modes_e::mtlfx_temporal) {
+		create_temporal_scaler();
+	}
 }
 
-auto gmtl::meshlet_renderer::get_render_resolution() const noexcept -> glm::u32vec2 {
-	auto drawableSize = layer->drawableSize();
-	return { drawableSize.width, drawableSize.height };
+glm::u32vec2 gmtl::meshlet_renderer::get_window_resolution() const noexcept {
+	ZoneScoped;
+	const auto [width, height] = layer->drawableSize();
+	return { width, height };
 }
 
-void gmtl::meshlet_renderer::prepare_frame(std::size_t frameIndex) {
+glm::u32vec2 gmtl::meshlet_renderer::get_render_resolution() const noexcept {
+	return render_resolution;
+}
+
+void gmtl::meshlet_renderer::prepare_frame(const std::size_t frame_index) {
 	ZoneScoped;
 	dispatch_semaphore_wait(draw_semaphore, DISPATCH_TIME_FOREVER);
 	if (command_buffer_exception) {
 		std::rethrow_exception(command_buffer_exception);
 	}
 
-	auto& material_buffer = material_buffers[frameIndex];
+	auto& material_buffer = material_buffers[frame_index];
 	if (const auto requiredSize = materials.size() * sizeof(shaders::material_t);
 		!material_buffer || material_buffer->length() < requiredSize) {
 		material_buffer = NS::TransferPtr(device->newBuffer(requiredSize, MTL::StorageModeShared));
@@ -560,7 +629,7 @@ void gmtl::meshlet_renderer::prepare_frame(std::size_t frameIndex) {
 	}
 }
 
-bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gworld,
+bool gmtl::meshlet_renderer::draw(const std::size_t frame_index, graphics::scene_t& gworld,
 							 const shaders::camera_t& camera, float dt) {
 	ZoneScoped;
 	auto* pool = NS::AutoreleasePool::alloc()->init();
@@ -569,8 +638,8 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 
 	auto* drawable = layer->nextDrawable();
 
-	scene.update_draw_buffers(frameIndex);
-	*static_cast<shaders::camera_t*>(camera_buffers[frameIndex]->contents()) = camera;
+	scene.update_draw_buffers(frame_index);
+	*static_cast<shaders::camera_t*>(camera_buffers[frame_index]->contents()) = camera;
 
 	auto* buffer_desc = MTL::CommandBufferDescriptor::alloc()->init()->autorelease();
 	buffer_desc->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
@@ -599,6 +668,12 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		mr_attachment->setTexture(visbuffer_pass.metallic_roughness_texture.get());
 		mr_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
 
+		auto* mv_attachment = visbuffer_pass_descriptor->colorAttachments()->object(3);
+		mv_attachment->setLoadAction(MTL::LoadActionClear);
+		mv_attachment->setStoreAction(MTL::StoreActionStore);
+		mv_attachment->setTexture(visbuffer_pass.motion_vector_texture.get());
+		mv_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 0.));
+
 		auto* depthAttachment = visbuffer_pass_descriptor->depthAttachment();
 		depthAttachment->setClearDepth(0.);
 		depthAttachment->setLoadAction(MTL::LoadActionClear);
@@ -611,7 +686,7 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		encoder->setRenderPipelineState(visbuffer_pass.visbuffer_pipeline.get());
 		encoder->setDepthStencilState(visbuffer_pass.depth_state.get());
 
-		auto& sceneDrawBuffers = scene.draw_buffers[frameIndex];
+		auto& sceneDrawBuffers = scene.draw_buffers[frame_index];
 
 		for (auto& meshes : scene.meshes) {
 			encoder->useResource(meshes.mesh->vertex_index_buffer.get(), MTL::ResourceUsageRead);
@@ -626,7 +701,7 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		resource_table->encode_usage(encoder);
 
 		encoder->setObjectBytes(&drawCount, sizeof drawCount, 0);
-		encoder->setObjectBuffer(camera_buffers[frameIndex].get(), 0, 1);
+		encoder->setObjectBuffer(camera_buffers[frame_index].get(), 0, 1);
 		encoder->setObjectBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 2);
 		encoder->setObjectBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 3);
 		encoder->setObjectBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 4);
@@ -634,10 +709,10 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		encoder->setMeshBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 0);
 		encoder->setMeshBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 1);
 		encoder->setMeshBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 2);
-		encoder->setMeshBuffer(camera_buffers[frameIndex].get(), 0, 3);
-		encoder->setMeshBuffer(material_buffers[frameIndex].get(), 0, 4);
+		encoder->setMeshBuffer(camera_buffers[frame_index].get(), 0, 3);
+		encoder->setMeshBuffer(material_buffers[frame_index].get(), 0, 4);
 
-		encoder->setFragmentBuffer(material_buffers[frameIndex].get(), 0, 0);
+		encoder->setFragmentBuffer(material_buffers[frame_index].get(), 0, 0);
 		encoder->setFragmentBuffer(resource_table->sampled_image_buffer, 0, 1);
 
 		// We cull manually per primitive in the mesh shader
@@ -653,8 +728,8 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		encoder->setTileBuffer(sceneDrawBuffers.meshlet_draw_buffer.get(), 0, 0);
 		encoder->setTileBuffer(sceneDrawBuffers.transform_buffer.get(), 0, 1);
 		encoder->setTileBuffer(sceneDrawBuffers.primitive_buffer.get(), 0, 2);
-		encoder->setTileBuffer(camera_buffers[frameIndex].get(), 0, 3);
-		encoder->setTileBuffer(material_buffers[frameIndex].get(), 0, 4);
+		encoder->setTileBuffer(camera_buffers[frame_index].get(), 0, 3);
+		encoder->setTileBuffer(material_buffers[frame_index].get(), 0, 4);
 		encoder->setTileBuffer(resource_table->sampled_image_buffer, 0, 5);
 
 		encoder->dispatchThreadsPerTile(
@@ -670,7 +745,7 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		auto* color_attachment = shading_pass_descriptor->colorAttachments()->object(0);
 		color_attachment->setLoadAction(MTL::LoadActionClear);
 		color_attachment->setStoreAction(MTL::StoreActionStore);
-		color_attachment->setTexture(drawable->texture());
+		color_attachment->setTexture(scaling_mode == scaling_modes_e::none ? drawable->texture() : color_texture.get());
 		color_attachment->setClearColor(MTL::ClearColor::Make(0., 0., 0., 1.));
 
 		auto* albedo_attachment = shading_pass_descriptor->colorAttachments()->object(1);
@@ -696,7 +771,7 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 
 		encoder->setRenderPipelineState(shading_pass.shading_pass_pipeline.get());
 
-		encoder->setTileBuffer(camera_buffers[frameIndex].get(), 0, 0);
+		encoder->setTileBuffer(camera_buffers[frame_index].get(), 0, 0);
 		encoder->setTileTexture(visbuffer_pass.depth_texture.get(), 0);
 
 		encoder->dispatchThreadsPerTile(
@@ -705,7 +780,26 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 		encoder->endEncoding();
 	}
 
-	imgui_renderer->draw(buffer, drawable, get_render_resolution(), frameIndex, drawCount == 0);
+	// Upscale the rendered image if necessary
+	if (scaling_mode == scaling_modes_e::mtlfx_temporal) {
+		temporal_scaler->setReset(first_frame_temporal);
+		temporal_scaler->setDepthReversed(true);
+
+		temporal_scaler->setOutputTexture(color_output_texture.get());
+		temporal_scaler->setColorTexture(color_texture.get());
+		temporal_scaler->setDepthTexture(visbuffer_pass.depth_texture.get());
+		temporal_scaler->setMotionTexture(visbuffer_pass.motion_vector_texture.get());
+		temporal_scaler->encodeToCommandBuffer(buffer);
+
+		first_frame_temporal = false;
+
+		auto* blit_encoder = buffer->blitCommandEncoder();
+		blit_encoder->copyFromTexture(
+			color_output_texture.get(), drawable->texture());
+		blit_encoder->endEncoding();
+	}
+
+	imgui_renderer->draw(buffer, drawable, get_window_resolution(), frame_index, drawCount == 0);
 
 	buffer->presentDrawable(drawable);
 
@@ -745,4 +839,35 @@ bool gmtl::meshlet_renderer::draw(std::size_t frameIndex, graphics::scene_t& gwo
 	pool->release();
 
 	return true;
+}
+
+std::vector<graphics::scaling_modes_e> gmtl::meshlet_renderer::get_scaling_modes() const {
+	ZoneScoped;
+	return {
+		scaling_modes_e::none,
+		scaling_modes_e::mtlfx_temporal,
+	};
+}
+
+std::vector<graphics::scaling_preset_t> gmtl::meshlet_renderer::get_scaling_presets(const scaling_modes_e mode) const {
+	ZoneScoped;
+	if (mode == scaling_modes_e::none)
+		return {{{1.f, "Native"}}};
+
+	// These are just the presets from FSR3
+	return {{
+		{1.f, "Native"},
+		{1.f / 1.5f, "Quality"},
+		{1.f / 1.7f, "Balanced"},
+		{1.f / 2.f, "Performance"},
+	}};
+}
+
+void gmtl::meshlet_renderer::use_upscaler(const scaling_modes_e mode, const scaling_preset_t preset) {
+	ZoneScoped;
+	assert(mode == scaling_modes_e::none || mode == scaling_modes_e::mtlfx_temporal);
+	scaling_mode = mode;
+
+	render_scale = preset.factor;
+	update_resolution(glm::u32vec2(get_window_resolution().x / 2, get_window_resolution().y / 2));
 }

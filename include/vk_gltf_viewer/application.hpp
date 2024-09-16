@@ -83,9 +83,8 @@ class application {
 
 	std::vector<std::shared_ptr<graphics::texture_t>> textures;
 
-	glm::u32vec2 renderResolution;
-	ResolutionScalingModes scalingMode = ResolutionScalingModes::None;
-	std::vector<std::pair<ResolutionScalingModes, std::string_view>> availableScalingModes;
+	graphics::scaling_modes_e scaling_mode = graphics::scaling_modes_e::none;
+	std::size_t scaling_mode_preset = 0;
 
 	bool firstFrame = true;
 	double deltaTime = 0., lastFrame = 0.;

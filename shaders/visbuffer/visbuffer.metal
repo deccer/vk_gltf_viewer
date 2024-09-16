@@ -9,6 +9,7 @@ namespace mtl = metal;
 
 struct meshlet_vertex {
 	float4 position [[position]];
+	float4 prev_position;
 	float4 color;
 	float2 uv;
 };
@@ -109,7 +110,8 @@ struct object_payload {
 	}
 
 	device auto& transform = transforms[draw.transform_index];
-	auto mvp = camera.viewProjection * transform.matrix;
+	const auto mvp = camera.view_projection * transform.matrix;
+	const auto prev_mvp = camera.prev_view_projection * transform.matrix;
 
 	threadgroup mtl::array<float3, shaders::maxVertices> clip_vertices;
 
@@ -134,6 +136,7 @@ struct object_payload {
 		clip_vertices[vidx] = pos.xyw;
 		meshlet_out.set_vertex(vidx, meshlet_vertex {
 			.position = pos,
+			.prev_position = prev_mvp * float4(vtx_pos, 1.f),
 			.color = color,
 			.uv = uv,
 		});
@@ -218,6 +221,8 @@ struct visbuffer_tile_data {
 	mtl::rgba16snorm<float4> normal [[raster_order_group(0)]];
 #endif
 	packed_half2 metallic_roughness [[raster_order_group(0)]];
+	packed_half2 motion_vectors [[raster_order_group(0)]];
+
 	uint visbuffer [[raster_order_group(0)]];
 
 	// Since barycentrics will usually only be in the [0, 1] range except when MSAA is used, we can
@@ -252,8 +257,13 @@ struct visbuffer_frag_out {
 			mtl::discard_fragment();
 	}
 
+	constexpr auto mv_scale = float2(0.5f, -0.5f);
+	constexpr auto mv_offset = 0.5f;
+	auto uv = (in.vert.position.xy / in.vert.position.w) * mv_scale + mv_offset;
+	auto prev_uv = (in.vert.prev_position.xy / in.vert.prev_position.w) * mv_scale + mv_offset;
 	return {
 		.tile_data {
+			.motion_vectors = half2(prev_uv - uv),
 			.visbuffer = uint32_t(shaders::visbuffer_data(in.prim.draw_id, in.prim.id)),
 			.barycentrics = barycentrics,
 		},
@@ -390,7 +400,7 @@ mtl::float3x3 as_transposed_3x3(mtl::float4x4 matrix) {
 	device const auto& pos1 = primitive.position_buffer[indices.y];
 	device const auto& pos2 = primitive.position_buffer[indices.z];
 
-	const auto mvp = camera.viewProjection * transform.matrix;
+	const auto mvp = camera.view_projection * transform.matrix;
 	float2 size(grid_size.x, grid_size.y); // TODO: Is this actually correct?
 	float2 pixel = (float2(tid) / size) * 2.f - 1.f;
 	auto gradient = calculate_gradient(

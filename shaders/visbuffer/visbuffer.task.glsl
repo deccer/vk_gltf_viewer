@@ -53,7 +53,7 @@ void main() {
 
 		if (visible) {
 			// HiZ occlusion culling
-			vec3[2] projectedAabb = projectAabb(worldAabbCenter, worldAabbExtent, camera.prevOcclusionViewProjection);
+			vec3[2] projectedAabb = projectAabb(worldAabbCenter, worldAabbExtent, camera.prev_occlusion_view_projection);
 			float width = (projectedAabb[1].x - projectedAabb[0].x) * pyramidSize.x;
 			float height = (projectedAabb[1].y - projectedAabb[0].y) * pyramidSize.y;
 			float level = floor(log2(max(width, height)));

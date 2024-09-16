@@ -87,7 +87,7 @@ struct gbuffer_tile_data {
 		return;
 
 	auto uv = (float2(tid) + 0.5f) / float2(depth_texture.get_width(), depth_texture.get_height());
-	auto position = reconstruct_position_from_depth(camera.invViewProjection, uv, depth);
+	auto position = reconstruct_position_from_depth(camera.inv_view_projection, uv, depth);
 
 	auto light = mtl::normalize(half3(1.h, 1.h, 1.h));
 	auto view = half3(mtl::normalize(camera.position - position));

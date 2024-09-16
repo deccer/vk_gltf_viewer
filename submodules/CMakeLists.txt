@@ -110,6 +110,11 @@ if (EXISTS "${VKV_DEPS_DIR}/enkits")
     add_library(enkiTS::enkiTS ALIAS enkiTS)
 endif()
 
+if (EXISTS "${VKV_DEPS_DIR}/simdjson")
+    message(STATUS "vk_gltf_viewer: Found simdjson")
+    add_subdirectory("${VKV_DEPS_DIR}/simdjson")
+endif()
+
 if (EXISTS "${VKV_DEPS_DIR}/fastgltf")
     message(STATUS "vk_gltf_viewer: Found fastgltf")
     option(FASTGLTF_COMPILE_AS_CPP20 "" ON)
@@ -229,6 +234,7 @@ if(EXISTS "${VKV_DEPS_DIR}/metal-cpp" AND APPLE)
     target_link_libraries(metal-cpp INTERFACE
         "-framework Metal"
         "-framework MetalKit"
+        "-framework MetalFX"
         "-framework AppKit"
         "-framework Foundation"
         "-framework QuartzCore"

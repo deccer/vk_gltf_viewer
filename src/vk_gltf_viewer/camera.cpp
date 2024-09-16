@@ -157,15 +157,15 @@ void camera_t::update(GLFWwindow* window, double deltaTime, glm::u32vec2 framebu
 	auto projectionMatrix = glm::perspectiveRH_ZO(fov, aspectRatio, zNear, zFar);
 	// projectionMatrix[1][1] *= -1;
 
-	prevViewProjection = viewProjection;
-	prevOcclusionViewProjection = occlusionViewProjection;
+	prev_view_projection = view_projection;
+	prev_occlusion_view_projection = occlusion_view_projection;
 
-	viewProjection = reverseDepth(projectionMatrix) * view;
-	invViewProjection = inverse(viewProjection);
+	view_projection = reverseDepth(projectionMatrix) * view;
+	inv_view_projection = inverse(view_projection);
 
 	if (!freezeCullingMatrix)
-		occlusionViewProjection = viewProjection;
+		occlusion_view_projection = view_projection;
 
 	if (!freezeCameraFrustum)
-		generateCameraFrustum(viewProjection, frustum);
+		generateCameraFrustum(view_projection, frustum);
 }

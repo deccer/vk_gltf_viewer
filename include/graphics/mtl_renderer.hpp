@@ -7,6 +7,8 @@
 #include <Foundation/NSSharedPtr.hpp>
 #include <Metal/MTLDevice.hpp>
 #include <Metal/MTLSampler.hpp>
+#include <MetalFX/MTLFXTemporalScaler.hpp>
+#include <MetalFX/MTLFXSpatialScaler.hpp>
 #include <QuartzCore/CAMetalLayer.hpp>
 
 #include <graphics/resource_table.hpp>
@@ -115,6 +117,7 @@ struct visbuffer_pass {
 	NS::SharedPtr<MTL::Texture> albedo_texture;
 	NS::SharedPtr<MTL::Texture> normal_texture;
 	NS::SharedPtr<MTL::Texture> metallic_roughness_texture;
+	NS::SharedPtr<MTL::Texture> motion_vector_texture;
 	NS::SharedPtr<MTL::Texture> depth_texture;
 
 	void init_pass(meshlet_renderer& renderer);
@@ -143,11 +146,23 @@ class meshlet_renderer : public graphics::renderer {
 	dispatch_semaphore_t draw_semaphore;
 	std::exception_ptr command_buffer_exception;
 
+	std::unique_ptr<imgui::imgui_renderer> imgui_renderer;
+
+	float render_scale = 1.f;
+	glm::u32vec2 render_resolution;
+	scaling_modes_e scaling_mode = scaling_modes_e::none;
+	NS::SharedPtr<MTLFX::TemporalScaler> temporal_scaler;
+	bool first_frame_temporal = false;
+
+	// TODO: Is it really necessary to have an additional upscaled texture?
+	// MetalFX will not allow us to upscale into the drawable directly, since it's not
+	// a Private texture... for some reason.
+	NS::SharedPtr<MTL::Texture> color_texture;
+	NS::SharedPtr<MTL::Texture> color_output_texture;
+
 	std::shared_ptr<mtl_resource_table> resource_table;
 
 	NS::SharedPtr<MTL::Library> global_library;
-
-	std::unique_ptr<imgui::imgui_renderer> imgui_renderer;
 
 	std::vector<NS::SharedPtr<MTL::Buffer>> camera_buffers;
 
@@ -158,6 +173,8 @@ class meshlet_renderer : public graphics::renderer {
 
 	visbuffer_pass visbuffer_pass;
 	shading_pass shading_pass;
+
+	void create_temporal_scaler();
 
 public:
 	explicit meshlet_renderer(GLFWwindow* window);
@@ -190,10 +207,15 @@ public:
 	}
 
 	void update_resolution(glm::u32vec2 resolution) override;
+	auto get_window_resolution() const noexcept -> glm::u32vec2;
 	auto get_render_resolution() const noexcept -> glm::u32vec2 override;
 
 	void prepare_frame(std::size_t frame_index) override;
 	bool draw(std::size_t frame_index, scene_t& world,
 			  const shaders::camera_t& camera, float dt) override;
+
+	std::vector<scaling_modes_e> get_scaling_modes() const override;
+	std::vector<scaling_preset_t> get_scaling_presets(scaling_modes_e mode) const override;
+	void use_upscaler(scaling_modes_e scaler, scaling_preset_t preset) override;
 };
 }

@@ -41,7 +41,6 @@ void glfwResizeCallback(GLFWwindow* window, int width, int height) {
 	if (width > 0 && height > 0) {
 		glm::u32vec2 res(width, height);
 		decltype(auto) app = *static_cast<application*>(glfwGetWindowUserPointer(window));
-		app.renderResolution = res;
 		app.renderer->update_resolution(res);
 	}
 }
@@ -147,28 +146,6 @@ application::~application() noexcept {
 	//       the application during shutting down?
 	for (auto& task : asset_load_tasks)
 		task_scheduler.WaitforTask(task.get());
-}
-
-void application::update_render_resolution() {
-	ZoneScoped;
-	//auto swapchainExtent = toVector(swapchain->swapchain.extent);
-
-#if defined(VKV_NV_DLSS)
-	if (scalingMode == ResolutionScalingModes::DLSS) {
-		auto settings = dlss::getRecommendedSettings(dlssQuality, swapchainExtent);
-		renderResolution = settings.optimalRenderSize;
-
-		device->timelineDeletionQueue->push([handle = dlssHandle]() {
-			dlss::releaseFeature(handle);
-		});
-		dlssHandle = dlss::initFeature(*device, renderResolution, swapchainExtent);
-	} else
-#endif
-	{
-		//renderResolution = swapchainExtent;
-	}
-
-	firstFrame = true; // We need to re-transition the images since they've been recreated.
 }
 
 void application::add_asset_to_scene(asset_load_task& task) {
@@ -386,15 +363,19 @@ void application::render_ui() {
 			if (ImGui::BeginTabItem("Graphics")) {
 				ImGui::SeparatorText("Resolution scaling");
 
-				auto scalingModeName = std::find_if(availableScalingModes.begin(), availableScalingModes.end(), [&](auto& mode) {
-					return mode.first == scalingMode;
-				})->second;
-				if (ImGui::BeginCombo("Resolution scaling", scalingModeName.data())) {
-					for (const auto& [mode, name] : availableScalingModes) {
-						bool isSelected = mode == scalingMode;
-						if (ImGui::Selectable(name.data(), isSelected)) {
-							scalingMode = mode;
-							update_render_resolution();
+				const auto modes = renderer->get_scaling_modes();
+				const auto selected_mode_name = graphics::get_scaling_mode_name(scaling_mode);
+				if (ImGui::BeginCombo("Resolution scaling", selected_mode_name.data())) {
+					for (const auto& mode : modes) {
+						const bool isSelected = mode == scaling_mode;
+						const auto mode_name = graphics::get_scaling_mode_name(mode);
+						if (ImGui::Selectable(mode_name.data(), isSelected)) {
+							scaling_mode = mode;
+
+							const auto presets = renderer->get_scaling_presets(mode);
+							assert(!presets.empty());
+							renderer->use_upscaler(scaling_mode, presets.front());
+							scaling_mode_preset = 0;
 						}
 						if (isSelected)
 							ImGui::SetItemDefaultFocus();
@@ -402,26 +383,25 @@ void application::render_ui() {
 					ImGui::EndCombo();
 				}
 
-#if defined(VKV_NV_DLSS)
-				if (scalingMode == ResolutionScalingModes::DLSS) {
-					auto dlssQualityName = std::find_if(dlss::modes.begin(), dlss::modes.end(), [&](auto& mode) {
-						return mode.first == dlssQuality;
-					})->second;
-					if (ImGui::BeginCombo("DLSS Mode", dlssQualityName.data())) {
-						for (const auto& [quality, name]: dlss::modes) {
-							bool isSelected = quality == dlssQuality;
-							if (ImGui::Selectable(name.data(), isSelected)) {
-								dlssQuality = quality;
-								updateRenderResolution();
-							}
-							if (isSelected)
-								ImGui::SetItemDefaultFocus();
-						}
+				const auto presets = renderer->get_scaling_presets(scaling_mode);
+				const auto& selected_preset_name = presets[scaling_mode_preset].name;
+				ImGui::BeginDisabled(presets.size() == 1);
+				if (ImGui::BeginCombo("Scaling presets", selected_preset_name.data())) {
+					for (std::size_t i = 0; const auto& [factor, name] : presets) {
+						const bool isSelected = i == scaling_mode_preset;
+						if (ImGui::Selectable(name.data(), isSelected)) {
+							scaling_mode_preset = i;
 
-						ImGui::EndCombo();
+							renderer->use_upscaler(scaling_mode, presets[i]);
+						}
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+
+						++i;
 					}
+					ImGui::EndCombo();
 				}
-#endif
+				ImGui::EndDisabled();
 
 				ImGui::EndTabItem();
 			}

@@ -58,3 +58,6 @@
 [submodule "submodules/entt"]
 	path = submodules/entt
 	url = https://github.com/skypjack/entt
+[submodule "submodules/simdjson"]
+	path = submodules/simdjson
+	url = https://github.com/simdjson/simdjson

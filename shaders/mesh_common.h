@@ -24,12 +24,12 @@ SHADER_NAMESPACE_BEGIN
 SHADER_CONSTANT uint32_t shadowMapCount = 4;
 
 struct camera_t {
-	ALIGN_AS(16) fmat4 prevViewProjection;
-	ALIGN_AS(16) fmat4 prevOcclusionViewProjection;
+	ALIGN_AS(16) fmat4 prev_view_projection;
+	ALIGN_AS(16) fmat4 prev_occlusion_view_projection;
 
-	ALIGN_AS(16) fmat4 viewProjection;
-	ALIGN_AS(16) fmat4 invViewProjection;
-	ALIGN_AS(16) fmat4 occlusionViewProjection;
+	ALIGN_AS(16) fmat4 view_projection;
+	ALIGN_AS(16) fmat4 inv_view_projection;
+	ALIGN_AS(16) fmat4 occlusion_view_projection;
 	SHADER_ARRAY(packed_fvec4, frustum, 6);
 
 	packed_fvec3 position;

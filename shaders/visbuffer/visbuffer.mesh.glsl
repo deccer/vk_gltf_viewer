@@ -41,8 +41,8 @@ void main() {
 	}
 
 	mat4 transformMatrix = pushConstants.transformBuffer.transforms[draw.transform_index];
-	mat4 mvp = pushConstants.cameraBuffer.camera.viewProjection * transformMatrix;
-	mat4 prevMvp = pushConstants.cameraBuffer.camera.prevViewProjection * transformMatrix; // TODO: We need the transforms from the last frame
+	mat4 mvp = pushConstants.cameraBuffer.camera.view_projection * transformMatrix;
+	mat4 prevMvp = pushConstants.cameraBuffer.camera.prev_view_projection * transformMatrix; // TODO: We need the transforms from the last frame
 
 	// The max_vertices does not match the local workgroup size.
 	// Therefore, we'll have this loop that will run over all possible vertices.

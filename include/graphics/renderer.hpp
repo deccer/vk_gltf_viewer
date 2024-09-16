@@ -48,6 +48,38 @@ namespace graphics {
 		virtual void update_transform(instance_index instance, glm::fmat4x4 transform) = 0;
 	};
 
+	enum class scaling_modes_e {
+		none,
+#if defined(VKV_NV_DLSS)
+		dlss,
+#endif
+		mtlfx_spatial,
+		mtlfx_temporal,
+	};
+
+	[[nodiscard]] constexpr std::string_view get_scaling_mode_name(const scaling_modes_e mode) noexcept {
+		ZoneScoped;
+		switch (mode) {
+			using enum scaling_modes_e;
+#if defined(VKV_NV_DLSS)
+			case dlss:
+				return "dlss";
+#endif
+			case mtlfx_temporal:
+				return "mtlfx_temporal";
+			case mtlfx_spatial:
+				return "mtlfx_spatial";
+			default:
+			case none:
+				return "none";
+		}
+	}
+
+	struct scaling_preset_t {
+		float factor = 1.f;
+		std::string name;
+	};
+
 	/**
 	 * The abstracted renderer interface.
 	 */
@@ -101,5 +133,9 @@ namespace graphics {
 		virtual void prepare_frame(std::size_t frame_index) = 0;
 		virtual bool draw(std::size_t frame_index, scene_t& scene,
 						  const shaders::camera_t& camera, float dt) = 0;
+
+		virtual std::vector<scaling_modes_e> get_scaling_modes() const = 0;
+		virtual std::vector<scaling_preset_t> get_scaling_presets(scaling_modes_e mode) const = 0;
+		virtual void use_upscaler(scaling_modes_e mode, scaling_preset_t preset) = 0;
 	};
 }
